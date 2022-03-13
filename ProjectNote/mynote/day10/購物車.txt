@@ -1,0 +1,102 @@
+購物車
+	逛 : 首頁, 詳情頁, 列表頁 可以不登入
+	
+	購物車 : 登入方式的處理 不登入方式的處理
+	
+	買 : 結算 訂單 支付 必須用戶登入
+	
+---
+購物車必須持久的保存起來, 不論是否登入.
+
+	1, 保存到哪
+		數據庫
+		緩存
+		
+		cookie : 未登入情況下,可以保存到cookie
+			
+			法1, 把購物車全部的信息做成一個json串, 保存到cookie中
+				缺點:
+				1, cookie長度只有4k
+				2, 每次請求都帶cookie, 流量大
+				3, 大數據分析不易(存在後臺就可以作分析)
+			
+			法2, 只保存一個token在購物車中, token作為用戶id, 把未登入購物車的信息保存到後台 (推薦解決方案)
+				優點:
+				
+				邏輯一致, 不論登入或未登入.購物車的包都是緩存+數據庫的管理方式
+				
+	
+	商品購物車前置模塊
+		1,商品詳情
+		2,sso
+	
+	購物車的包
+		緩存+數據庫管理方式
+		
+			[補]http://cart.gmall.com/addToCart
+			嚴格來說,Restful風格的API不帶動作, 動作都用請求類型區別, GET,POST,DELTE....
+			
+			---
+			建置cart動靜分離時,記得也要加上 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;, 因為現在基本上都牽扯到攔截器,所以應該都要加上
+			upstream cart.gmall.com{
+				server 192.168.72.1:8086;
+			}
+
+
+			server {
+				listen          80;
+				server_name     cart.gmall.com;
+
+				location / {
+				  proxy_pass http://passport.gmall.com;
+				  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+				}
+				location ~*.(css|png|eot|js|ttf|svg|woff|jpg)$ {
+				  root gmall-cart;
+				}
+			}
+
+			--
+			redis查詢hash語法 : hgetall cart:null:info
+			
+		添加購物車
+			保存到數據庫
+			保存到緩存
+				redis hash
+				
+				如果沒有登入,生成一個臨時token_id, 把user_id保存到cookie中, 以臨時的user_id為準,進行保存購物(緩存和數據庫)
+				
+		購物車列表 http://cart.gmall.com/cartList
+			1, 查詢
+				(1)先查緩存
+				(2)緩存沒有,查詢數據庫並更新緩存
+				(3)合併數據
+					1,查詢是否有user_tmp_id,而且有沒有對應的臨時購物車,
+					2,如果有把臨時購物車合併到用戶名下的購物車
+					3,刪除掉臨時購物車
+					
+				[補]顯示時因為數據類型不同,所以需要#numbers.formatDecimal轉一下
+					<p class="dj" th:text="${cartInfo.cartPrice}+(${#numbers.formatDecimal(cartInfo.cartPrice,1,2)}==${#numbers.formatDecimal(cartInfo.skuPrice,1,2)})?'':('當前最新價格'+${cartInfo.skuPrice})" >￥4599.00</p>
+		
+		
+					skuPrice取出來是null, 記得想一下是不是redis沒有
+					
+					---
+		
+		合併購物車
+			1,在數據庫層面, 兩個購物車進行合併
+			2,合併後的結果, 重新刷新到緩存
+					
+			[補]
+				upsert -> update + insert (很多數據庫有這個詞)
+				
+				在mysql是這樣用的:
+				
+				SHOW INDEX FROM `cart_info`
+
+				CREATE UNIQUE INDEX idx_uid_skuid ON cart_info(user_id,sku_id)
+				
+				INSERT INTO cart_info (user_id ,sku_id,cart_price ,sku_num,img_url,sku_name)
+				SELECT #{userIdDest} ,sku_id,cart_price ,sku_num,img_url,sku_name FROM cart_info cc WHERE cc.user_id=#{userIdOrig}
+				ON DUPLICATE KEY UPDATE cart_info.`sku_num`=cart_info.`sku_num`+cc.sku_num
+	

@@ -1,0 +1,291 @@
+1, 後臺商品管理
+	1 三級分類
+	2 平台屬性
+		過濾 篩選商品
+		不同三級分類,有不同的商品屬性
+	3 銷售屬性
+		篩選商品
+		
+		不同spu,有不同的銷售屬性
+		
+	4 spu
+		標準商品單元
+		把相同系列的sku歸納再一起
+		好處:
+			方便用戶選擇
+			共用資源(如商品介紹圖片,影片)
+	
+	5 sku
+		庫存單元
+		
+		商品價格 用戶購買 庫存技術 都是以此為準
+		
+	一個spu 都涉及那些信息 => 1:1 1:n
+		1:1 => id name (如: 一加one plus) 描述... => 都在一張表上,多個字段
+		1:n => 									  							=> 兩張表,進行關聯
+			   銷售屬性 (常用屬性,顏色,版本,組合,尺寸,內存,種類...) : 通常會是運營進行設定,給各商家使用,否則各個商家設定不同那就不好維護了.
+			   商品圖片 只在保存spu時,保存完整圖片文件信息, 等到建立sku時再進行關聯
+			   評論
+			   海報
+	
+	一個sku 都涉及那些信息
+		1:1 => id name 價格 庫存數
+		1:n => 跟圖片有關聯
+			   銷售屬性值
+			   多個平台屬性
+	
+	圖片保存 如何保存? 
+		雲存儲 : oss ; 七牛
+		本地分布式文件存儲 : fastdfs ; TFS(淘寶) ; EMC [補充: 去IOE(不用IBM ORACLE EMC,太貴)]
+		
+	[補充]前端工程如何啟動?
+	npm (x) => npm是調試用的. 
+	answer:
+		
+		部屬流程:
+		打包(完成後會再dist資料夾內),然後放在nginx
+		
+		nginx三大功能
+		(1)反射代理
+		(2)負載均衡
+		(3)動靜分離 : nginx負責靜態請求,tomcat負責動態請求
+		
+		通常nginx與tomcat會是不同兩台機器
+		
+		請求流程:
+		請求=>nginx區分是動態或靜態請求(靠路徑表達式區分)=>靜態至nginx上的靜態資源取,動態至tomcat上的動態資源取
+		
+	
+	spu的保存
+		1,保存主表 spu_info
+		2,保存 圖片表 1,上傳圖片,會把圖片的路徑回傳回來 2,圖片路徑url保存到數據庫
+		3,保存銷售屬性和屬性值
+		
+		FastDFS介紹
+		
+			Client : 相當於dubbo的Consumer
+			Tracker Server : 中間件 ; 路由 , 支持分布式, 紀錄圖片放在哪個Storage Server裡,.... 相當於dubbo的zookeeper.
+			Provider : 相當於dubbo的provider
+			
+		FastDFS安裝 : 主要照著文檔安裝就行了
+			一 、FastDFS--tracker安装
+			
+			軟體安裝 RPM, SRPM 與 YUM http://linux.vbird.org/linux_basic/0520rpm_and_srpm.php#yumclient
+			分布式文件系统 FastDFS 5.0.5 & Linux CentOS 7 安装配置 https://blog.csdn.net/wlwlwlwl015/article/details/52619851
+			[看老師用感覺很爽,有空再研究]
+			Xshell、Xftp：超好用SSH Client軟體 https://www.ewdna.com/2012/06/xshellxftpssh-client.html
+			Xshell連線本地VMware安裝的Linux虛擬機器 https://www.itread01.com/p/157722.html
+			linux中要怎麼建立資料夾 https://www.itread01.com/content/1548333936.html
+			cp – 複製檔案目錄指令 https://www.opencli.com/linux/linux-cp-command
+			linux命令中tar后跟的zxvf是什么意思 https://blog.csdn.net/number_chc/article/details/38978551
+			linux ls和 ll 命令 https://blog.csdn.net/cgzhello1/article/details/7839534
+			
+			fastdfs-nginx-module 用途 : nginx整合,如果是動態請求就轉給tomcat,如果是靜態請求就是給nginx(自己),
+										如果是圖片就轉給fastdfs服務
+			
+			make.sh : 通常為編譯用,後通常還會接 make.sh install
+			
+			4	 tracker编译安装
+			
+			fastdfs一旦啟動,他讀取的配置只有/etc/
+			(etc下是專門放各種配置文件的)
+			
+			etc/init.d/ => 裡面所有文件都是開機自啟的腳本
+			ll /etc/init.d/
+			總計 96
+			-rwxr-xr-x. 1 root root  1186  8月 26 19:56 fdfs_storaged => 裡面沒有stop與restart腳本,所以要自己搬到 /usr/local/fdfs/(腳本在FasrDFS內)
+			-rwxr-xr-x. 1 root root  1186  8月 26 19:56 fdfs_trackerd
+			-rw-r--r--. 1 root root 18281  8月 19  2019 functions
+			-rwxr-xr-x. 1 root root  4569  8月 19  2019 netconsole
+			-rwxr-xr-x. 1 root root  7928  8月 19  2019 network
+			-rw-r--r--. 1 root root  1160  4月  1 09:30 README
+			-rwxr-xr-x. 1 root root 45702  8月 24 15:46 vmware-tools
+			
+			修改启动脚本
+			vim /etc/init.d/fdfs_trackerd
+			
+			為什麼不再bin下? 因為redis也放在user/local/bin下,容易混淆
+			
+			chkconfig  => 查看那些服務可否開機啟動 0~6 運行級別 (常用5(有介面),3(無介面))
+			
+			二、FastDFS--storage安装
+			
+			base_path : meta data
+			store_path0 : 真實數據
+			
+			5 上传图片测试
+			[測試fastfdfs java client]先不寫java,先用cmd測試
+			
+			先配置/usr/bin/fdfs_test, 告訴她tracker在哪
+			
+			[補充]在user/bin 已在環境變量中,可以不寫前墜
+			
+			測試問題:
+			配置fastdfs文件系统时，出现错误No such file or directory https://blog.csdn.net/Jacky_kplin/article/details/102932247
+			查Log原因是ip不能用localhost
+			
+			报错 ERROR - file: tracker_http_check.c, line: 132, http check alive, connect to http server 192.168.1.53:8888 fail, errno: 111, error info: Connection refused
+			=>
+			都是ip配錯,要小心
+			
+			三、FastDFS整合nginx
+			
+			自行安裝ngnix(參考ngnix教程)
+			
+			-bash: nginx: command not found 解决方案 https://blog.csdn.net/weixin_42956047/article/details/89503553
+			
+			vim /etc/fdfs/mod_fastdfs.conf=>
+			url_have_group_name : true => http網址會顯示group_name
+			
+			安装fastdfs-nginx-module : 相當於對於nginx進行覆蓋設置不會變,但加入fastdfs-nginx-module
+								[確定nginx安裝路徑]		 [加入fastdfs-nginx-module]
+			
+			2 安装fastdfs-nginx-module
+			创建nginx/client目录
+			[root@localhost src]# mkdir -p /var/temp/nginx/client
+			cd nginx的原始程序目录
+			=>
+			./configure --prefix=/usr/local/nginx --add-module=/opt/fastdfs/fastdfs-nginx-module/src
+			
+			vim不保存退出 https://www.cnblogs.com/panxuejun/p/6097115.html
+			nginx1.12编译出现 /usr/include/fastdfs/fdfs_define.h:15:27: fatal error: common_define.h: No such file or directory https://github.com/happyfish100/fastdfs-nginx-module/issues/31
+			linux上安装fastdfs+nginx+ngin-module实践并解决多个异常篇 https://blog.csdn.net/weixin_34408624/article/details/93711589
+			编译 Nginx 1.15.1 报错 https://github.com/happyfish100/fastdfs-nginx-module/issues/32
+			
+			3 编辑nginx.conf
+			
+			想要從瀏覽器連結nginx後,可以導向fastdfs,把圖片秀出來
+			
+			vim /usr/local/nginx/conf/nginx.conf
+			=> 新增加一個反射代理伺服器
+			server {
+			listen       80;
+			server_name  file.gmall.com;
+			location / {
+				ngx_fastdfs_module;
+			}
+			=>
+			location / : /表示全部,只要瀏覽器是file.gmall.com,通通導向fastdfs
+			---
+			
+			啟動nginx,出現 ngx_http_fastdfs_set pid=55102 表示成功
+			
+			---
+			fdfs會儲存兩份,一份是備份
+			
+			
+		利用Java客戶端調用FastDFS
+		
+			想用java調redis,就需要jedis,同理,
+			要用java調用fdfs,需要fdfs java client
+			
+			但是MAVEN倉庫沒有怎麼辦?
+			=>
+			自己去Github下載導入,怎麼導入?
+			=>
+			git clone下載至本地(與專案同個路徑下)=>IDEA File ,new ,Module From Existing Sources (選取整個資料夾) 
+			import module froom external model (maven)
+			=>
+			安裝成依賴, Life Crcle , maven install (雙擊就可)
+			=>
+			進其porm.xml取出其maven座標
+			
+			<groupId>org.csource</groupId>
+			<artifactId>fastdfs-client-java</artifactId>
+			<version>1.29-SNAPSHOT</version>
+			
+			[補]其實一旦Install成功, IDEA上引入的Module就可以不用了, 因為在本地倉庫已經有jar包了
+			
+			將座標加入其他會用到的module (gmall0822-manage-web)
+			
+			--
+			寫測試是否可以上傳(Gmall0822ManageWebApplicationTests) [補:test運行完就結束,不像run會繼續等]}
+			
+			1,Client要可以連Tracker => 需要知道tracker在哪,因此需要新增一個配置文件(tracker.conf)
+			
+			測試成功,實現controller運用至web(FileController)
+			
+			調試:
+			Request URL: http://localhost:8082/fileUpload
+			file: (binary) : 前端需要的參數
+			
+			MultipartFile与File的一些事 https://blog.csdn.net/sdut406/article/details/85647982
+			--
+			Controller做好用,可以讓網頁顯示圖片,但是點保存還需要記錄到database裡面
+			
+			調試:Request URL: http://localhost:8082/saveSpuInfo
+			
+			寫在ManageController內
+			
+			@PostMapping("saveSpuInfo")
+			public void  saveSpuInfo(SpuInfo spuInfo)
+			
+			調試:
+			spuImageList: [{imgName: "iphone.jpg",…}]
+			=>
+			因此還需要在bean裡加
+			@Transient
+			private List<SpuImage> spuImageList;
+			--
+			
+			添加銷售屬性
+			
+			調試:Request URL: http://localhost:8082/baseSaleAttrList
+			
+			數據庫表:base_sale_attr
+			
+			[補]只要涉及一個新的表,就要多加一個mapper
+			--
+			繼續調試:Request URL: http://localhost:8082/saveSpuInfo
+			=>
+			spuSaleAttrList: [{saleAttrId: "1", saleAttrName: "顏色",…}, {saleAttrId: "2", saleAttrName: "版本",…}]
+			0: {saleAttrId: "1", saleAttrName: "顏色",…}
+			saleAttrId: "1"
+			saleAttrName: "顏色"
+			spuSaleAttrValueList: [{saleAttrId: "1", saleAttrValueName: "土豪金"}, {saleAttrId: "1", saleAttrValueName: "黑媽媽"}]
+			1: {saleAttrId: "2", saleAttrName: "版本",…}
+			saleAttrId: "2"
+			saleAttrName: "版本"
+			spuSaleAttrValueList: [{saleAttrId: "2", saleAttrValueName: "4+128"}, {saleAttrId: "2", saleAttrValueName: "8+128'"}]
+			=>
+			只要bean裡的結構可以符合,就可以自動封裝 加入:
+			public class SpuInfo implements Serializable { 
+			 @Transient
+			 private List<SpuSaleAttr> spuSaleAttrList;
+			}
+			
+			public class SpuSaleAttr implements Serializable {
+
+				@Id
+				@Column
+				private String id ;
+			
+				@Column
+				private String supId;
+			
+				@Column
+				private String saleAttrId;
+			
+				@Column
+				private String saleAttrName;
+			
+				@Transient
+				private List<SpuSaleAttrValue> spuSaleAttrValueList;
+			}
+			
+			遇到Class path contains multiple SLF4J bindings.该如何解决 : https://blog.csdn.net/shujuelin/article/details/81144494
+			Linux下Tomcat重新啟動 https://www.itread01.com/p/865667.html
+			ubbo啟動消費者找不到服務端com.alibaba.dubbo.rpc.RpcException: No provider available from registry ip:2181 for service on
+			https://www.itread01.com/content/1548482299.html
+			
+			--
+			查詢三級分類對應的SPU
+			
+			調試:
+			Request URL: http://localhost:8082/spuList?catalog3Id=23
+			
+			[問題]有時候程式碼都對,但Controller就是會報錯??
+
+		
+
+	

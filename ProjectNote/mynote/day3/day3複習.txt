@@ -1,0 +1,43 @@
+sup
+	
+	保存
+		1,spu 的基本信息 名稱和描述
+		2,圖片上傳
+			fastdfs
+				組件
+					client --> tracker --> storage
+					
+					client : 2種, 
+							(1)命令行 fdfs_test
+							(2)java 通過源碼編譯安裝到本地倉庫中
+							[補]如果有其他部門,做了工具套件,也打成maven包了,要給我們用,通常怎麼給?
+							私庫(中央倉庫+私人jar包) => 我們的maven不寫中央倉庫,改寫私庫.
+							
+					tracker : (寫操作的)路由,分配到不同storage中
+					
+					storage : 負責存儲文件
+					
+					步驟流程:
+					發起一個文件上傳
+						0, storage 啟動 通知tracker
+						1, client 通知tracker 我要上傳
+						2, tracker 分配一個storage讓client上傳
+						3, client和storage進行連接傳輸
+						4, 保存後storage會返回一個訪問地址給client
+					
+					讀取一個文件
+						瀏覽器 通過url地址路徑訪問nginx,由nginxfastdfs的組件找到storage對應的文件
+					
+				當上傳成功以後,頁面獲得storage返回的地址路徑,保存spu的時候,把每個圖片的地址保存到數據庫中
+		
+		3,銷售屬性
+			在spu中可以篩選不同 版本,類型,顏色...的商品
+			
+			sup : 銷售屬性 : 1:n
+			銷售屬性 : 銷售屬性值 : 1:n
+			
+			
+					
+					
+					
+					

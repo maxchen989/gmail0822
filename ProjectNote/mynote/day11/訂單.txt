@@ -1,0 +1,115 @@
+訂單 order.gmall.com
+	
+	結算頁 order.gmall.com/trade 
+		
+		地址 : 用戶信息模塊
+		
+		購買方式 : 選項(不用取)
+		
+		商品清單 : 待結帳購物車 redis
+		
+		用戶備註,留言 : 文本塊(不用取)
+		
+	[補]
+		@GetMapping("trade")
+		@LoginRequire(autoRedirect = true)
+		public String trade(HttpServletRequest request) {
+			//獲得用戶信息
+			String userId = (String) request.getAttribute("userId");
+			//用戶地址列表
+			List<UserAddress> userAddressList = userService.getUserAddressList(userId);
+
+			request.setAttribute("userAddressList",userAddressList);
+
+			//用戶需要結帳的商品清單
+			List<CartInfo> checkedCartList = cartService.getCheckedCartList(userId);
+
+			UserInfo userInfo = userService.getUserInfoById(userId);
+
+			return "trade";
+		}
+		
+		=> 返回一個頁面是 public String 配合 return "頁面名稱", 並且Controller註解是@Controller, 而不能使用@RestController
+	
+	商品保存
+		涉及數據庫, 創建新模塊 order-service
+		--
+		通常不再JavaBean裡面寫業務邏輯, 但有一種情況可能會寫 : 如果所有計算的參數都在JavaBean,而且有他就有可能用到計算, 那我可能就會寫在JavaBean裡面
+		
+		public void sumTotalAmount(){
+        BigDecimal totalAmount=new BigDecimal("0");
+        for (OrderDetail orderDetail : orderDetailList) {
+            totalAmount= totalAmount.add(orderDetail.getOrderPrice().multiply(new BigDecimal(orderDetail.getSkuNum())));
+        }
+        this.totalAmount=  totalAmount;
+		}
+		
+		--
+		http://order.gmall.com/submitOrder
+		
+		請求參數:
+		consignee: 收貨人max
+		deliveryAddress: 台中市
+		paymentWay: ONLINE
+		orderComment: 
+		orderDetailList[0].skuId': 
+		orderDetailList[0].skuNum': 
+		orderDetailList[0].orderPrice': 
+		tradeNo: 
+		=>
+		請求參數這麼多, 好的辦法是把它把它封裝到一個類. (OrderInfo)
+		
+		--OrderService牽涉到多張表, 最好是加上@EnableTransactionManagement, 並在牽涉多張表的方法上添加@Transactional
+		@SpringBootApplication
+		@ComponentScan(basePackages = "com.max.gmall0822")
+		@MapperScan(basePackages = "com.max.gmall0822.ordr.mapper")
+		@EnableTransactionManagement
+		public class Gmall0822OrderServiceApplication {
+
+			public static void main(String[] args) {
+				SpringApplication.run(Gmall0822OrderServiceApplication.class, args);
+			}
+
+		}
+		
+		
+		@Override
+		@Transactional
+		public void saveOrder(OrderInfo orderInfo) {
+		--
+		[補]
+			 $("#submitButton").click(function () {
+					   $("#consignee").val($("input[type='radio']:checked").next().text()) ; <== js提交時把,收件人讀取,並提交
+					   $("#deliveryAddress").val( $("input[type='radio']:checked").next().next().text());
+					   $("#paymentWay").val("ONLINE");
+					   $("#orderComment").val($("#orderCommentPage").val());
+					   console.log($("#orderForm").html());
+					   $("#orderForm").submit();
+
+					});
+			---	
+			狀態302 : 重定向
+			
+			--
+			通用mapper如果不加配置, 默認是不支持erum枚舉的
+			=> mapper.enum-as-simple-type=true
+			
+			--
+			ImgUrl沒有從頁面傳,但也不推薦從頁面傳,因為傳輸數據盡量少,因為網路傳輸也是消耗.
+	
+	
+	提交訂單
+		1,如何解決用戶反覆提交問題 
+		=> 冪等性, 識別那些提交是同樣的提交
+		=> 在頁面中設置token (一份保存在後台redis,一份分發給用戶嵌在頁面中)(拿相同token的人,提交一次與提交一萬次都相同)(token存redis,提交過就讓它失效,再拿相同token提交,不給過)
+		   在提交訂單時,把token一起提交
+		   驗證提交token和之前後台token是否存在且一致,如果存在且一致說明提交有效則放行, 同時把後台的token刪除掉.
+			
+		2, 驗價 : 下單時頁面提交的價格和商品實時價格出現差別,一律下單失敗
+		
+		3, 驗庫存 : 如果發現下單時庫存不足, 一律下單失敗.
+
+		
+支付 payment.gmall.com
+
+	

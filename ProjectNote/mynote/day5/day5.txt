@@ -1,0 +1,344 @@
+https://item.jd.com/100014355294.html : 偽靜態,其實是動態的. 那麼多sku想當然不會每一個頁面都做一個
+100014355294.html 其實等於 item.html?skuid=100014355294(動態),為什麼不寫成動態的就好要寫成偽靜態?
+=>seo,為了讓瀏覽器爬蟲更好的搜尋到.
+
+https://item.jd.com/100014355294.html : 真靜態也有可能,什麼時候會這樣做? 通常非常熱門的商品才會做一個真靜態.
+維護真靜態很麻煩. 好處 : 快.
+通常會有靜態頁面生成工具(把動態頁面轉成寫死的HTML),而不用再重刻.
+
+真靜態 : 真的是寫死在HTML,而不用從數據庫撈.
+
+100014355294 就是一個sku的編號
+
+---
+商品詳情頁
+
+	skuInfo
+	名稱
+	價格
+	重量
+	圖片列表
+	銷售屬性和銷售屬性值
+	(當前商品的spu的 銷售屬性和銷售屬性值)
+	還要支持,點擊銷售屬性值進行切換, 所以頁面中,要做一個映射關係,=>多個銷售屬性值的組合對應哪一個skuid
+	
+	規格 : 很多字段最好存成"json"
+	海報 : 相同spu的圖片列表
+---
+先補上sku後台查詢
+
+	不會兩個模塊訪問同一張表,這樣才合乎微服務的概念,如果其他服務要用,就調模塊就好.
+
+	這裡是商品詳情頁,所以web創建新模塊,而service還是gmall0822-manage-service
+	
+	idea Module 'xxxxx' already exist in project. Please, specify another name. https://blog.csdn.net/qq_15304369/article/details/91523917
+	不知道什麼原因導致我創建gmall0822-item-web時,無法顯示在IDEA上 => 最後我進Project Structrue裡面新建module成功
+	
+	偽靜態的Controller怎麼寫?
+	
+	@RestController
+	public class ItemController {
+
+		@Reference
+		ManageService manageService;
+
+		@GetMapping("{skuId}.html")
+		public SkuInfo item(@PathVariable("skuId") String skuId){
+			return manageService.getSkuInfo(skuId);
+		}
+	}
+	=> 測試後發現406問題,手動轉JSON
+	
+    @GetMapping("{skuId}.html")
+    public String item(@PathVariable("skuId") String skuId){
+        SkuInfo skuInfo = manageService.getSkuInfo(skuId);
+        String jsonString = JSON.toJSONString(skuInfo);
+        return jsonString;
+    }
+	
+	[Controller]使用@PathVariable以及@RequestParam存取網頁特定網址 https://ithelp.ithome.com.tw/articles/10159679
+	
+	如何訪問?
+	依照數據庫有的skuid進行訪問, 如數據庫有skuid33 => 33.html
+	
+	[補]有幾種辦法使取到的數據進行渲染頁面?
+	(1)前端框界.放靜態頁面傳給瀏覽器,再用AJAX調數據進行渲染 => 調試會發現,數據並不包含在HTML裡,因為他是用戶要用的時候才用AJAX去調.
+	(2)模板技術(JSP,Thymeleaf...).靜態頁面放在服務器,把要補上的數據貼個標籤,一起補上傳回瀏覽器. => 調試會發現,數據在HTML裡面,就說明可能是使用模板技術
+	
+	京東是用lua模板技術. 好處:nginx,redis都支持lua.所以直接lua,nginx調redis再回傳瀏覽器性能快(相比tomcat+mysql). 缺點:會lua的人少,人難找,難維護.
+	
+	[補]
+	降級 : AJAX好處之一,壓力特別大的時候,可以適當的放棄某些服務,然而模板技術需要抓取全部數據過程中都無錯誤才能回傳整個頁面,所以難以降級.
+	
+	京東就是兩種同時使用,關鍵性數據用AJAX,非關鍵數據用模板技術
+	
+Thymeleaf
+
+	相比JSP好處 : 沒有任何非html的標籤 => 給現有的標籤增加屬性,前端可以很好進行調試
+	ex:
+	xxx.html
+	<div th:text=${divText}"></div>
+	
+	controller
+	request.setAttribute{"divText","張三"};
+	
+	工作流程可以這樣 
+	前端html --> 後端 加上渲染元素 --> 前端
+	
+	---
+	開始開發Thymeleaf
+	
+	html放哪?
+	item-web下的 resources\templates\demo.html
+	
+	<!DOCTYPE html>
+	<html I<html xmlns="http://www.w3.org/1999/xhtml" xmlns:th="http://www.thymeleaf.org">>
+	<head>
+		<meta charset="UTF-8">
+		<title>Tile</title>
+	</head>
+	<body>
+
+	<input th:value="${skuInfo.skuName}"/> => skuInfo.skuName : 其中.後面的,只要bean裡面存在都可以加 ; thymeleaf渲染的後面一定要加/ 
+																									=>spring.thymeleaf.mode=LEGACYHTML5 鬆校驗(不一定要加/,但是還要額外配一下porm)
+																									=>spring.thymeleaf.mode=HTML5 嚴謹校驗(一定要加/)
+																									=>spring.thymeleaf.cache=false 緩存關閉,方便調試,可熱部屬
+	<!--循環-->
+	<table>
+		<tr th:each="skuImage:${skuInfo.skuImageList}" th:if="${skuImage.imgName}!='iphoneX.jpg'"> <= 名為iphoneX.jpg的我不要
+			<td th:text="(${skuImage.ImgName}=='iphone.jpg')?'金色背面.jpg':${skuImage.ImgName}"></td> <=名為iphone,jpg的我要改為金色背面,否則維持原樣
+		</tr>
+	</table>
+	</body>																							   
+	</html>																							   
+	
+	@Controller => 不用RestContriller了
+	public class ItemController {
+
+		@Reference
+		ManageService manageService;
+
+		@GetMapping("{skuId}.html")
+		public String item(@PathVariable("skuId") String skuId, HttpServletRequest request){ => 需要添加HttpServletRequest request
+			SkuInfo skuInfo = manageService.getSkuInfo(skuId);
+			request.setAttribute("skuInfo",skuInfo); => "skuInfo" : 對應<input th:value="${skuInfo.skuName}">的skuInfo
+			return "demo"; => 往demo.html內渲染
+		}
+	}
+
+	鬆校驗額外的porm要加入util-web:
+	<dependency>
+    <groupId>net.sourceforge.nekohtml</groupId>
+    <artifactId>nekohtml</artifactId>
+	</dependency>
+	<dependency>
+		<groupId>xml-apis</groupId>
+		<artifactId>xml-apis</artifactId>
+	</dependency>
+	<dependency>
+		<groupId>org.apache.xmlgraphics</groupId>
+		<artifactId>batik-ext</artifactId>
+	</dependency>
+	
+	--
+	th:value與th:text有何差別?
+	th:value => <input value=xxx>
+	th:text => <input> xxx </input>
+	
+	--也可以直接在request傳入要什麼html型態,用在html用Thymeleaf顯示出
+	
+	request.setAttribute("gname","<span style=\"color:green\">宝强</span>"); 
+	
+	<p th:utext="${gname}">color</p>
+	
+	四 功能开发
+	页面资源导入
+		D:\guli\谷粒商城张晨版\谷粒商城源码\前端页面
+		
+		前端通常會給成一包 :
+		boostrap + image + img + js + scss + "index.html" => 這樣一包可以直接顯示出網頁(但沒有數據)
+		
+		我們要知道這邊的靜態是boostrap + image + img + js + scss
+		而"index.html"對我們其實是算動態的,因為我們還要利用Thymeleaf進行數據的渲染
+		
+		如何導入前端資源?
+		D:\guli\谷粒商城张晨版\谷粒商城源码\前端页面\static&templates 複製到resource裡
+		
+		[補]thymeleaf數字處理
+		numbers.formatDecimal(<值>,<小数点左边的占位>,<小数点右边的保留位>) : <小数点左边的占位>填少不會少,填多了會補0
+		
+		選擇顏色&選擇版本如何實現?
+		1,顯示出spu中的銷售屬性 和 銷售屬性值
+			根據spuId查
+			List<SpuSaleAttr>
+				List<SpuSaleAttrValue>
+			=>
+			已寫過getSpuSaleAttrList
+				
+		2,標記出本身商品的銷售屬性值
+			=>
+			以原本的sql下去改(SpuSaleAttrInfoMapper.xml)
+			
+			加入
+			<select id="getSpuSaleAttrListBySupId" resultMap="saleAttrList">
+				  SELECT
+					sa.id ,
+					sa.spu_id,
+					sa.sale_attr_name,
+					sa.sale_attr_id,
+					sv.id sale_attr_value_id,
+					sv.`sale_attr_value_name`,
+					IF (sav.sale_attr_value_name IS NULL,'0','1') is_checked
+					FROM
+					spu_sale_attr sa
+				INNER JOIN spu_sale_attr_value sv
+					ON
+					sa.spu_id=sv.spu_id AND
+					sa.sale_attr_id=sv.sale_attr_id
+					LEFT JOIN
+					sku_sale_attr_value sav
+				ON
+					sv.`id`=sav.`sale_attr_value_id`
+					WHERE
+					sa.spu_id=#{spu_id} AND
+					sav.`sku_id`=#{sku_id}
+					;
+			</select>
+			
+			封裝可以不用新增,直接添寫autoMapping="true"(有就封裝,沒有就不封裝)
+			
+			回去添寫Mapper類(兩個類所以參數要加@param)  public List<SpuSaleAttr> getSpuSaleAttrListBySupIdCheckSku(@Param("skuId") String spuId, @Param("skuId") String skuId);
+			
+			在idea中查找类,展示类,快速查找某个类或方法在整个项目中的位置 https://blog.csdn.net/qq_36901488/article/details/80704245
+						
+		3,點擊某幾個銷售屬性值可以切換到對應的sku商品
+			
+			後台組織一個清單 : 多個銷售屬性值 對應 skuid 清單
+				SELECT 
+				sale_attr_value_id,
+				sku_id
+				FROM 
+				`sku_sale_attr_value` sv 
+				JOIN `sku_info` si 
+				ON sv.sku_id=si.id
+				WHERE si.spu_id=30
+				ORDER BY sku_id,sale_attr_value_id ASC
+				
+				結果:
+					 1,2
+					 2,2 => 轉成  [(1,2,3),2]讓前端好接
+					 3,2
+				=>
+				SELECT 
+				sku_id,
+				GROUP_CONCAT(sale_attr_value_id ORDER BY sale_attr_value_id ASC SEPARATOR '|') value_ids
+				FROM 
+				`sku_sale_attr_value` sv 
+				JOIN `sku_info` si 
+				ON sv.sku_id=si.id
+				WHERE si.spu_id=30
+				GROUP BY sku_id
+				ORDER BY sku_id,sale_attr_value_id ASC
+				
+				---
+				public interface SkuSaleAttrValueMapper extends Mapper<SkuSaleAttrValue> {
+    
+					public List<Map> <= 之前沒有創建這個bean的property,偷懶的做法可以用HashMap (key,value)= (欄位,值)
+				}
+				---
+				<?xml version="1.0" encoding="UTF-8"?>
+				<!DOCTYPE mapper SYSTEM "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+				<mapper namespace="com.max.gmall0822.manage.mapper.SkuSaleAttrValueMapper">
+					<select id="getSkuSaleAttrValueBySpu" resultMap="SpuValueIdMap">
+						SELECT
+						sku_id,
+						GROUP_CONCAT(sale_attr_value_id ORDER BY sale_attr_value_id ASC SEPARATOR '|') value_ids
+						FROM
+						`sku_sale_attr_value` sv
+						JOIN `sku_info` si
+						ON sv.sku_id=si.id
+						WHERE si.spu_id=30
+						GROUP BY sku_id
+						ORDER BY sku_id,sale_attr_value_id ASC
+					</select>
+					<resultMap id="SpuValueIdMap" type="java.util.Map" autoMapping="true"> <=返回值是Map
+					</resultMap>
+				</mapper>
+				---
+				 @Override
+				public Map getSkuValueIdsMap(String spuId) {
+					List<Map> mapList = skuSaleAttrValueMapper.getSkuSaleAttrValueBySpu(spuId);
+					// 為了將數據型態轉為我們想要的型態,原本key是欄位,value是值.
+					// 現在想轉成 key是skuId值, value是valueIds值
+					Map skuValueIdsMap = new HashMap();
+					for (Map map: mapList) {
+						String skuId = (Long) map.get("sku_id") +"";
+						String valueIds = (String) map.get("value_ids");
+						skuValueIdsMap.put(skuId,valueIds);
+					}
+					return skuValueIdsMap;
+				}
+				---
+				
+			idea 快速同时编辑多行代码快捷键 https://blog.csdn.net/wendy_qgh/article/details/102580586
+			
+			前台 : 通過切換銷售屬性後 當前紅框裡的銷售屬性值組合 與 清單進行對照,獲得skuid 進行跳轉
+			
+			<input type="hidden" name="skuId" th:value="${skuInfo.id}" />
+			<input type="hidden" id="skuId" name="skuId" th:value="${skuInfo.id}" />
+			<input type="hidden" id="valuesSku" name="valuesSku" th:value="${valuesSkuJson}">
+			
+			<dt th:text="'選擇'+${spuSaleAttr.saleAttrName}">选择颜色</dt>
+			<dd th:class="(${spuSaleAttrValue.isChecked}=='1')?'redborder':''" class="redborder" th:each="spuSaleAttrValue:${spuSaleAttr.spuSaleAttrValueList}">
+				<div th:value="${spuSaleAttrValue.id}" th:text="${spuSaleAttrValue.saleAttrValueName}" >
+					  摩卡金
+				</div>
+			</dd>
+			
+			有值了,怎麼切換?那就要用到JavaScript了
+			=>
+			gmall0822-item-web\\resources\static\js\js.js
+			
+			function switchSkuId() {
+				var checkDivs = $(".redborder div"); 找到所有紅塊div
+				console.log("len:"+checkDivs.length)
+				var valueIds="";
+				//遍例紅框div中的元素,提取每個元素的value, 用|組成字符串
+				for (var i = 0; i < checkDivs.length; i++) {
+					var saleAttrValueDiv = checkDivs.eq(i);
+					if(i>0){
+						valueIds= valueIds+"|";
+					}
+					valueIds=valueIds+saleAttrValueDiv.attr("value"); 
+
+				}
+				//處理後端給的JOSON字串
+				console.log("valueIds:"+valueIds);
+				var valuesSku = $("#valuesSku").attr("value");
+				console.log("valuesSku:"+valuesSku);
+				var valuesSkuMap=JSON.parse(valuesSku);
+				var skuId= valuesSkuMap[valueIds]; //相當於Map.get
+				console.log("skuId:"+skuId);
+				var skuIdSelf=$("#skuId").val();
+				//1.查出來要跳轉的是自己的sku
+				//2.沒有對應的skuId
+				//3.正好需要跳轉的skuId
+				if(skuId){
+					if(skuId==skuIdSelf){ // 如果點原本的,不跳轉
+						$("#cartBtn").attr("class","box-btns-two");
+					}else{
+						window.location.href="/"+skuId+".html";
+					}
+
+
+				}else{
+					$("#cartBtn").attr("class","box-btns-two-off"); //如果沒有就不能加到購物車
+				}
+
+			}
+			
+			
+			
+			skuInfo
+			找該spu下的所有sku的銷售屬性值(不能為全部銷售屬性值,因為可能發生某款缺貨)
+			

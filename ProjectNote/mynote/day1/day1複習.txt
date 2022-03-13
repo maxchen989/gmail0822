@@ -1,0 +1,77 @@
+1, 介紹電商
+2, 通用Mapper
+				免sql 單表增刪改查
+				
+				1,引包
+				2,處理實體bean
+					在實體bean上 增加註解
+						@Column 標示為列 跟數據庫的字段對應 類屬性駝峰 對應 表字段 下畫線
+						@Id 標示為主鍵
+						@GeneratedValue(strategy = GenerationType.IDENTITY) 允許字段自增
+						
+				3,在mapper接口上進行擴展 extends Mapper<實體bean>
+				4,使用內置通用mapper的方法
+					
+					selectAll
+					selectByPrimaryKey 按主鍵進行查詢
+					select(實體類的bean) 根據實體類中非空參數進行查詢
+					ex:
+					select(UserInfo userInfo) 傳入name = "aa" => select * from table where name="aa"
+					
+					int age= 0 =>where age=0
+					注意,不要用基本類型,如int boolean double,因為有些不會為null,例如age會自帶0
+					要用Integer Double...
+					
+					selectOne(UserInfo userInfo) 多條會報錯,必須保證一條
+					
+					insert() 不管空還是不空,都會插入
+					insertSelective() 空值不會插入, 會使用mysql中設定的默認值 或者 自增值
+					
+					updateByPrimaryKey(UserInfo info) 根據主鍵進行更新 空值更新
+					updateByPrimaryKeySelective(UserInfo info) 根據主鍵進行更新 空值不更新
+					
+					deleteByPrimaryKey 根據主鍵進行刪除
+					deleteByExample 根據條件進行刪除
+					
+				5,在 XXXApplication主類上 加註解 @MapperScan(base-packages="mapper路俓")
+
+3,分布式架構
+		
+		parent 依賴管理
+		bean 實體類
+		interface 業務接口
+		util-common 通用工具
+		util-web web端工具		controller
+		util-service 服務端工具 serviceImpl
+		
+		xxx-web web模塊
+		xxx-service 服務端模塊
+
+4,dubbo
+		
+		provider
+		comsumer 
+		註冊中心 zookeeper
+		
+		
+		搭建dubbo
+			1,搭建一個zookeeper
+			2,工程 引入bubbo 依賴, 1,dubbo原生 2,zookeeper客戶端 3,dubbo與zookeeper的整合包
+			調用端與提供端都要引入依賴
+			3,application.properties
+				application.name
+				註冊中心地址
+				註冊中心協議 zookeeper
+				傳輸協議 dubbo
+				掃描包 所有涉及dubbo的註解都要在該包下 或 該包的子包下
+				
+			4,註解
+				@Service:dubbo的(非spring的),標注在提供端 
+				ex:
+				@Service
+				public class UserServiceImpl implements UserService
+				
+				@Reference:dubbo,標注在消費端
+				ex:
+				@Reference
+				UserService userService;

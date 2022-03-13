@@ -1,0 +1,114 @@
+sku
+	相當於 用戶實實在在購買的商品
+	
+	也是一個spu系列中的某一款
+	
+	sku 名稱 價格 總量 描述 規格  	=>有時候銷售屬性值會只加一個欄位,裡面資料這樣放 xxx,xxx,xxx. 但這樣不符合第一正規化(字段不可拆分)
+	
+	銷售屬性值 : 黃色 128g			
+	平台屬性值 : 屏占比, 內存
+	圖片 
+	
+	[關聯]
+	
+	spu_image  : sku = n : n
+	銷售屬性值 : sku = n : n
+	平台屬性值 : sku = n : n
+	
+	[調試]
+	(1)
+	Request URL: http://manage.gmall.com/manage.gmall.com/spuImageList?spuId=30
+	
+	(2)
+	平台屬性
+	Request URL: http://manage.gmall.com/manage.gmall.com/attrInfoList?catalog3Id=23
+	
+	@Override
+    public List<BaseAttrInfo> getAttrList(String catalog3Id) {
+        Example example = new Example(BaseAttrInfo.class);
+        example.createCriteria().andEqualTo("catalog3Id",catalog3Id);
+
+        List<BaseAttrInfo> baseAttrInfoList = baseAttInfoMapper.selectByExample(example);
+        //查詢平台屬性值
+        for (BaseAttrInfo baseAttrInfo : baseAttrInfoList) {
+            BaseAttrValue baseAttrValue = new BaseAttrValue();
+            baseAttrValue.setAttrId(baseAttrInfo.getId());
+            List<BaseAttrValue> baseAttrValueList = baseAttrValueMapper.select(baseAttrValue);
+            baseAttrInfo.setAttrValueList(baseAttrValueList);
+        }
+        
+        return baseAttrInfoList;
+    }
+	=>
+	可以,但是有優化空間. for循環最好不要使用, 最好寫成sql一次查詢出來.
+	怎麼組合sql?
+	通用Mapper只能解決單表的查詢,(group by... 依些太複雜的查詢也不能)關聯到多表怎麼使用? => 使用mybatis(寫在mybatis的XML裡.)
+	
+	mybatis用法:			
+		resource 加資料夾mapper => new file BaseAttrInfoMapper.xml (名字最好與欲使用的Mapper名字一樣)
+		=> 到Mapper(就是BaseAttrInfoMapper) 新增查詢方法   List<BaseAttrInfo> getBaseAttrInfoListByCatalog3Id(Long catalog3Id);
+		=> 回去寫xml (就是BaseAttrInfoMapper.xml) 
+		<?xml version="1.0" encoding="UTF-8"?>
+		<!DOCTYPE mapper SYSTEM "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+		<mapper namespace="com.max.gmall0822.manage.mapper.BaseAttInfoMapper"> #mapper.namespace : BaseAttrInfoMapper的reference
+			<select id="getBaseAttrInfoListByCatalog3Id" resultMap="baseAttrList"> #select id : BaseAttrInfoMapper的reference新增的方法 resultMap : 定義返回結果集的名稱
+				SELECT
+					bi.id,
+					attr_name,
+					catalog3_id,
+					bv.`id` attr_value_id,
+					bv.`value_name`
+				FROM `base_attr_info` bi
+				LEFT JOIN
+				`base_attr_value` bv
+				ON bi.`id` = bv.`attr_id`
+				WHERE bi.`catalog3_id` = #{catalog3Id}  # 裝配參數
+			</select>
+			<resultMap id="baseAttrList" type="com.max.gmall0822.bean.BaseAttrInfo"> #可以加上autoMapping="true" ,那麼駝峰關係的可以省略不寫 如 : property="attrName" column="attr_name" 會自動對應
+				<result property="id" column="id"></result> 			#result : 1對1的欄位與屬性 , property寫BaseAttrInfo的屬性名, column寫對應的數據庫欄位
+				<result property="attrName" column="attr_name"></result>
+				<result property="catalog3Id" column="catalog3_id"></result>
+				<collection property="attrValueList" ofType="com.max.gmall0822.bean.BaseAttrValue">	#collection : 集合 ,ofType : 集合其中的每個元素是什type
+					 <result property="id" column="attr_value_id"></result>
+					<result property="valueName" column="value_name"></result>
+					<result property="attrId" column="id"></result>
+				</collection> 
+			</resultMap> #TYPE : 查詢出來是List,而List裡面是BaseAttrInfo
+		</mapper>
+		
+		=>
+		application加入掃描包路徑
+		mybatis.mapper-locations=classpath:mapper/*Mapper.xml
+		mybatis.configuration.mapUnderscoreToCamelCase=true => mapUnderscoreToCamelCase => autoMapping的開關,這裡沒用上 => 可以加上autoMapping="true" ,那麼駝峰關係的可以省略不寫 如 : property="attrName" column="attr_name" 會自動對應
+	
+	(3)
+	銷售屬性
+	Request URL: http://manage.gmall.com/manage.gmall.com/spuSaleAttrList?spuId=30
+	
+	(4)
+	保存
+	Request URL: http://manage.gmall.com/manage.gmall.com/saveSkuInfo
+	
+擴充海報評論品牌
+	
+	添加功能:評論,海報,品牌
+	
+	關聯
+		評論 id,userid,spuid,銷售屬性值名稱(不直接存skuid,為了不再關聯直接存銷售屬性值名稱),評論內容,評分,時間,原評論id	<<<< 因為評論資料量大,如果sku存skuid還需要關聯很多其他表 ; 原評論id = id 為的是看有沒有追加評論
+			 <=>	UserInfo 
+			 <=>	圖片 id,圖片路徑,評論id
+			 <=>	spu
+		
+		海報 id,海報路徑,spuid
+			 <=>	spu
+		
+		品牌 id,名稱,logo路徑
+			 <=>	spu 品牌id
+			 <=>	skuinfo spuid,品牌id(冗餘)
+			 <=>	三級分類
+			 <=> 	品牌分類表 id, 品牌id,三級分類id
+			 
+		[補]
+		(1)當兩張表有n:n關係,就要想到設計中間表
+		(2)一個好的程序員,設計資料表一定會考慮到是否該有冗餘欄位,以避免效能問題
+			冗餘 : 重複存的資料

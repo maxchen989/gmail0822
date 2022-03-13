@@ -1,0 +1,201 @@
+電商系統
+	如何看一個京東電商有什麼業務模塊?
+	=>看網址,比如www.jd.com是一個首頁模塊
+			     Www.search.com是一個搜尋模塊
+				 ...
+				 
+		首頁
+		https://www.jd.com/
+		
+		搜尋服務
+		https://search.com/
+		
+		列表服務 list.jd.com/
+		
+		商品詳情
+		https://item.jd.com/
+		
+		購物車
+		https://cart.jd.com/
+		
+		結算
+		https://trade.jd.com/
+		
+		單點登陸
+		https://passport.jd.com/
+		
+		支付模塊
+		https://pcashiet.jd.com/
+		
+商品管理
+	
+	分類
+		三級分類
+			數據導入
+		平台屬性
+			在商品列表頁面, 對商品進行過濾篩選
+			
+			跟第三級分類進行掛勾, 不同的三級分類 涉及不同的平台屬性
+			
+		銷售屬性
+			也是篩選商品, 但在一個範圍內進行篩選 在同一個spu內進行篩選
+			
+			不同的spu有不同的銷售屬性			
+		
+		spu
+			一個標準化產品單元 : 華為p30 pro 	1000個
+			好處 : 相同spu的商品的資源可以進行共用, 節省資源
+			通過銷售屬性歸納商品,方便用戶選購
+		sku
+			一個庫存單元 : 華為p30 pro 紅色 6+128 標準版 200個
+						   華為p30 pro 白色 6+128 標準版 150個
+			面向一個實體商品, 一個sku就是一種不能再細分的商品 掛勾 價格和庫存
+			
+代碼開發
+	
+	前端 --> 後台 --> 數據 (原始需求, 需求分析, 概要設計(表字段,類方法), 詳細設計(方法裡面的業務邏輯))
+	
+	數據庫 三級分類 怎麼設計?
+		法一:此採用
+			設計三個表 一級分類(id,分類名) 二級分類(id,分類名,一級分類id) 三級分類(id,分類名,二級分類id)
+		法二:
+			設計成一個表
+		
+		MYSQL問題:
+		MySQL sql auto_increment 歸零和重新計算 https://sites.google.com/site/orbitcoding/-server-duan/mysql/mysql-sql-auto_increment-gui-ling-he-zhong-xin-ji-suan
+		
+		
+	前端 (不用自己寫,使用gmall-admin)
+		gmall-admin
+			配置後端地址 config/dev.env.js 中
+			BASE API: '"http://localhost:8082"'
+		
+			配置前端啟動端口 
+			config/index.js中
+			port : 8888
+			
+		Node.js專案啟動 : cd gmall-admin => npm run dev
+		关于npm run dev和build https://segmentfault.com/q/1010000005694821
+		npm scripts 使用指南 http://www.ruanyifeng.com/blog/2016/10/npm_scripts.html
+		從零開始: 使用NPM套件 https://medium.com/html-test/%E5%BE%9E%E9%9B%B6%E9%96%8B%E5%A7%8B-%E4%BD%BF%E7%94%A8npm%E5%A5%97%E4%BB%B6-317beefdf182
+		Error: Node Sass does not yet support your current environment: Windows 64-bit with false https://stackoverflow.com/questions/37415134/error-node-sass-does-not-yet-support-your-current-environment-windows-64-bit-w
+	
+
+	2.1 分类信息及属性的查询
+	2.1.1  添加实体类
+		public class BaseCatalog1 implements Serializable 
+		=>
+		面試官：連Serializable都不知道是什麼，你這5年都幹些什麼了？https://kknews.cc/code/gjm2r5e.html
+		JPA的@Column()注解详解 https://blog.csdn.net/qq_35624642/article/details/71403551
+		
+		gmall0822-manage-service.ManageServiceImpl
+		=>
+		一個@xxxMapper標籤對應一張表,所以要加三個mapper
+		
+		gmall0822-manage-web.ManageController 應該是GET請求才對,但前端就給POST那就POST吧 (gamll-admin的三級分類)
+		而且記得application.properties的server.port = 8082 (因為前端要求8082)
+		
+		調試期間:
+		Access to XMLHttpRequest at 'http://localhost:8082/getCatalog1' from origin 'http://localhost:8888' has been blocked by CORS policy: 
+		No 'Access-Control-Allow-Origin' header is present on the requested resource.
+		=>跨域問題(端口不一樣),加註解
+		@CrossOrigin <= 加上@CrossOrigin
+		public class ManageController {
+		
+		原來 CORS 沒有我想像中的簡單 https://blog.techbridge.cc/2018/08/18/cors-issue/
+		
+		一級分類出來後,調試二級請求 (依照'http://localhost:8082/getCatalog2?catalog1Id=1'再ManageController再做一個方法)
+		Access to XMLHttpRequest at 'http://localhost:8082/getCatalog2?catalog1Id=1' from origin 'http://localhost:8888' has been blocked by CORS policy: 
+		No 'Access-Control-Allow-Origin' header is present on the requested resource.
+
+	
+	三級分類和平台屬性 1:n
+	平台屬性和平台屬性值 1:n
+	
+	平台屬性表	(id, 屬性名, 三級分類id)
+	
+	平台屬性值表 (id, 屬性值名稱, 平台屬性id)
+	
+	
+	public class BaseAttrInfo implements Serializable {
+	=>
+	什麼時候要使用Serializable?
+	(1)磁碟儲存
+	(2)網路傳輸
+	=>
+	只要會出JVM的就要實現(A Module到B Module)
+	
+	什麼時候可以用熱部屬?(ctrl+shift+f9)(只有在debug模式下才可用熱部屬)
+	=>
+	配置變了,方法名變了,類名變了都不行
+	只有方法內的動作變了才可以
+	
+	2.2.1  后台代码
+	調試後發現,請求為'http://localhost:8082/saveAttrInfo'
+	=>
+	依照這個打造Controller
+	
+	添加屬性值可以多個,所以在bean多一個List
+	@Transient 
+	private List<BaseAttrInfo> attrValueList; //名字不能亂取,要與前端請求的一樣
+	=>
+	Java => Transient 不想進行序列話,傳輸前就丟掉,
+	在這裡@Transient指的是瞬時的,不持久化
+	---
+	@PostMapping("saveAttrInfo")
+    public String saveAttrInfo(@RequestBody BaseAttrInfo baseAttrInfo){
+	=>
+	@RequestBody : 字符串,如果是JSON串會包裝至baseAttrInfo
+	---
+	List<BaseAttrInfo> attrValueList = baseAttrInfo.getAttrValueList();
+       for (BaseAttrInfo attrInfo : attrValueList) {
+           
+       }
+	=>
+	因為添加屬性值有多個,所以我們只能用for迴圈一個一個寫入
+	=>
+	有寫入所以要新增mapper(BaseAttrValueMapper)
+	--
+	public class BaseAttrInfo implements Serializable {
+    @Id
+    @Column
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private String id;
+	=>
+	必須要有@GeneratedValue(strategy = GenerationType.IDENTITY) 否則以下寫法,會抓不到id
+	public void savaBaseAttrInfo(BaseAttrInfo baseAttrInfo) {
+        baseAttInfoMapper.insertSelective(baseAttrInfo);
+
+        //getAttrValueList : 得到其各個屬性值
+        List<BaseAttrValue> attrValueList = baseAttrInfo.getAttrValueList();
+        for (BaseAttrValue baseAttrValue : attrValueList) {
+            String id = baseAttrInfo.getId();
+		
+	走訪List的方法 : https://www.ewdna.com/2008/10/list_24.html
+	
+	2.3 属性编辑
+	調試後發現xhr.js:178 POST http://localhost:8082/getAttrValueList?attrId=37 net::ERR_FAILED
+	=>
+	開始打造Controller
+	--
+	
+	點選修改可以成功秀出列表,但發現,新增一筆會報錯,重複主鍵錯誤,因為點選修改時,前端也將id代入
+	=>
+	程式進行修改(ManageServiceImpl.savaBaseAttrInfo)
+	=>
+	對於AttrInfo
+	如果id存在就是修改,否則是新增
+	
+	對於AttrValue
+	這裡採用全部刪除後,在一次寫入,但這種做法就要保證id會一樣
+	
+	因為在一次保存中涉及多個表,所以要注意transaction
+	=>
+	@Override
+    @Transactional //加入transaction控制
+    public void savaBaseAttrInfo(BaseAttrInfo baseAttrInfo) {
+	
+	@SpringBootApplication
+	@MapperScan(basePackages = "com.max.gmall0822.manage.mapper")
+	@EnableTransactionManagement //加入transaction控制
+	public class Gmall0822ManageServiceApplication {

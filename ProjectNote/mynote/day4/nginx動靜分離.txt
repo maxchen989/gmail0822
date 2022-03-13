@@ -1,0 +1,102 @@
+如何做動靜分離?
+前端:
+npm run dev是調試用, 把它起成一個服務器, 但是部屬的時候不是用這種方式.
+=>
+執行npm run build => 產生dist目錄,把裡面所有東西copy到nginx,就是整個靜態工程
+[注意]config
+dev.env.js :後端接口地址 BASE_API 是IDEA啟動的地址:端口 (調試用)
+index.js : 在當成服務起啟動時才有用
+produc.env.js : 後端接口地址 BASE_API 是 一個真實域名(ex:http://manage.gmall.com) => 映射到nginx
+
+[開始實際做動靜分離]
+1,修改prod.env.js
+	路徑改成 manage.gmall.com
+2,修改host把 manage.gmall.com 和 linux ip地址映射
+3,打包前端工程 npm run build 
+	完成後會看dist文件夾產生
+	=>
+	內容物copy到nginx裡(其實也不是非得copy到nginx內,linux內任何路徑都可(nginx可寫絕對路徑))
+	
+4,如何讓nginx實現不同請求進入到不同的服務(動靜分離)?
+	改nginx配置(其實nginx就是玩配置)
+	
+	vi /usr/local/nginx/conf/nginx.conf
+
+	nginx需要區以下下三種請求
+	
+	1, 動態請求 http://manage.gmall.com/attrKist?catelog3Id=61
+	=> 做反向代理
+	
+	2, 靜態請求 http://manage.com/static/xxx.js		/xxx.png
+	=> js ico css png jpg ttf
+	
+	3, 首頁 首頁 http://manage.gmall.com --> index.html
+	
+	靠config裡面的location去匹配,添加的順序也要注意(因為正則表達式,只要區分出來後面就不會再進行匹配了)
+	
+	[補]
+	(1))
+	root是從什麼地方去找
+	index是沒有任何路徑情況下去找哪個當頁面
+	(2)
+	普通匹配
+	正則匹配 
+		~* : 不區分大小寫匹配, | : 或, $ : 結束
+		靜態
+		~*.(js|ico|css|png|jpg|ttf)$
+		動態
+		~*[a-z]+ a-z不區分大小寫的情況下 有任何1到n字符
+	
+	config修改部分如下:
+	
+	#log保存打開
+	log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log  logs/access.log  main;
+	
+	upstream manage{
+        server 192.168.72.1:8082; <= 先用idea啟動, 所以用vm的widndows端口(一定是1)
+    }
+
+    server {
+        listen       80;
+        server_name  manage.gmall.com;
+
+        #charset koi8-r;
+
+        #access_log  logs/host.access.log  main;
+        #HOME
+        location / {
+            root   gmall-manage;
+            index  index.html index.htm;
+        }
+        # static
+        location ~*.(html|js|ico|css|png|jpg|ttf)$ {
+            root   gmall-manage;
+        }
+        #dynamic
+        location ~[a-z]+ {
+            proxy_pass http://manage;  <= 要添加upstream
+		}
+	(3)
+	真正的線上架構, 瀏覽器與nginx中還會有一個cdn(互聯網中的緩存)
+	
+	比如曾經訪問nginx成功了,拉了一張圖片,這時候cdn就可以先把圖片保存在cdn上,下次可以直接去cdn拿,不用再去nginx
+	
+	[問題]
+	Request URL: http://manage.gmall.com/manage.gmall.com/getCatalog1
+	
+	依照老師給的config發現 getCatalog1 會報錯,原因是因為轉發時,以上面的url進行request.
+	但是應該要轉到http://manage.gmall.com/getCatalog1才對.
+	
+	所以我改了config 
+	location /manage.gmall.com/ {
+            proxy_pass http://manage/;
+        }
+	
+	猜測原因是我前端專案的BASE_API是manage.gmall.com,所以任何API都會加上這段導致錯誤,其實修改前端API也行,但是修改nginx也可以	
+	nginx之proxy_pass指令完全拆解 https://my.oschina.net/foreverich/blog/1512304
+	nginx 之 proxy_pass详解 https://blog.csdn.net/zhongzh86/article/details/70173174
+	nginx多域名配置 https://blog.csdn.net/tianmo2010/article/details/7037290

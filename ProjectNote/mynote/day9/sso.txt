@@ -1,0 +1,210 @@
+一、	单点登录业务介绍
+早期单一服务器，用户认证。: 用戶信息存在session裡 在web服務的內存裡.
+
+	[補]
+	(1)中小型用戶信息解決方案
+
+	架構圖:中小型用戶信息解決方案.jpg
+
+	使用三方依賴,使原本儲存在tomcat的session的,改存至redis.
+	
+分布式，SSO(single sign on)模式
+
+	[補]
+	(1)用戶信息寫在哪呢?
+	寫在util-common內,因為所有的模塊都會用到.
+
+	(2)登入寫在哪呢?
+	util-service是跟存儲進行對接
+	util-web是跟Web進行對接 (v)
+	
+	
+业务流程图{用户访问业务时，必须登录的流程}{单点登录的过程}
+(1)檢查cookie是否有token? => 你是不是有門票.
+token : 門票,是否可不可以進入.
+
+(2)帶token跳轉原web應用?
+第一次登入將token存在瀏覽器Cookie裡,並將token以URL後綴的方式帶給服務器.
+
+1,搭建認證中心
+	0 注册服务 
+		1 登录
+			1 查询比对 数据库和用户提交的用户名密码 
+			2 加载用户信息到缓存 超时时间
+            3 创建一个token  通过浏览器参数  发送给用户	（1 、验签  2、token有一些基本信息 可以在未登录情况下 使用或显示 ）	
+                jwt    -> 1、 密钥  2 数据  3 salt (当时登录时的ip地址)
+				
+				JWT
+				
+				jwt工具類有給("D:\guli\谷粒商城张晨版\谷粒商城源码\单点登录\工具类\util\JwtUtil.java")
+				
+				需要依賴
+				<dependency>
+					<groupId>io.jsonwebtoken</groupId>
+					<artifactId>jjwt</artifactId>
+					<version>0.9.0</version>
+				</dependency>
+				
+				@PostMapping("login")
+				@ResponseBody
+				public String locgin(UserInfo userInfo,HttpServletRequest requestt){
+
+					UserInfo userInfoExists = userService.login(userInfo);
+					//生成token
+					if(userInfoExists!=null){
+						HashMap<String, Object> map = new HashMap<>();
+						map.put("userId",userInfoExists.getId());
+						map.put("nickName",userInfoExists.getNickName());
+						//取得Ip地址
+						//如果用戶是直接訪問到tomcat,getRemoteAddr可以. 但我們會過nginx,所以要跟nginx要
+						//requestt.getRemoteAddr();
+						//如果有反向代理的話, 要在反向代理進行配置, 把用戶真實ip傳遞過來
+						String ipAddr = requestt.getHeader(" X-forwarded-for");
+						String token = JwtUtil.encode(jwtKey, map, ipAddr);
+						return token;
+
+					}
+					return "fail";
+				}
+
+				@Test
+				public void testJwt(){
+					HashMap<String, Object> map = new HashMap<>();
+					map.put("userId","123");
+					map.put("nickName","zhang3");
+					String token = JwtUtil.encode("max", map, "192.168.11.120");
+
+					//eyJhbGciOiJIUzI1NiJ9.eyJuaWNrTmFtZSI6InpoYW5nMyIsInVzZXJJZCI6IjEyMyJ9.EHv2n8OwrubBxvE4_PftWXXq1d4fbEn7tl9gg1W0Bjc
+					//頭信息.map.簽名
+					System.out.println(token);
+
+					//故意寫錯Ip地址 192.168.11.220 結果 : null
+					//正確Ip地址 192.168.11.120 結果 : {nickName=zhang3, userId=123}
+					Map<String, Object> map1 = JwtUtil.decode(token, "max", "192.168.11.120");
+					System.out.println(map1);
+				}
+				[補]
+					(1)	key : 生成簽名用, 真正需要保密的部分就是簽名部分, 他就真正代表了我這個人
+					
+					
+					(2) upstream passport.atguigu.com{
+						 server 192.168.67.1:8087;
+						}
+					    server {
+						 listen 80;
+						 server_name passport.atguigu.com;
+						 location / {
+							proxy_pass http://passport.atguigu.com;
+							proxy_set_header X-forwarded-for $proxy_add_x_forwarded_for; <== X-forwarded-for : 自取 ; $proxy_add_x_forwarded_for : 反向代理前面用戶的遠程ip
+						 }
+						}
+						
+					(3)redis java.lang.nullpointerexception => redission依賴要添加
+						<dependency>
+							<groupId>org.redisson</groupId>
+							<artifactId>redisson</artifactId>
+							<version>3.11.1</version>
+						</dependency>	
+
+					(4)decodeURIComponent ?
+					https://passport.jd.com/new/login.aspx?ReturnUrl=https%3A%2F%2Ftw.jd.com%2F
+					=>
+					ReturnUrl後面是要跳傳的頁面,假設沒有經過編碼那他可能長
+					https://passport.jd.com/new/login.aspx?ReturnUrl=https://diannao.jd.com/index.html?name=55
+					=>
+						?name=55 無法辨別是不是https://passport.jd.com/new/login.aspx的參數,所以當要跳轉頁面時,需經過編碼
+			
+		
+		2  认证、校验 (業務模塊收到token不放心要檢查)
+		    雙重驗證
+			1 检查token, 需要 1 、token  2、密钥 3、ip地址   :  controller 验证 (驗證tocken是不是偽造)
+			2 检查缓存里的数据, 从token中取出userid : service 验证 
+			
+[補]
+	1  搭建认证中心模块
+		导入静态资源和登录页面 01资料中
+			這邊採用動靜分離 , html放入後端,js css img放入ngnix.
+			
+			nginx 配置 :
+			
+			upstream passport.gmall.com{
+				server 192.168.72.1:8087;
+			}
+
+			server {
+				listen          80;
+				server_name     passport.gmall.com;
+				location / {
+				  proxy_pass http://passport.gmall.com;
+				}
+				location ~*.(css|png|eot|js|ttf|svg|woff|jpg)${
+				  root gmall-passport;
+				}
+			}
+	2, dat09 2 最後BUG老師影片好像沒有放,先跳過 => 拉基jdk版本問題吧
+		java.lang.AbstractMethodError: com.max.gmall0822.user.service.impl.UserServiceImpl.login(Lcom/max/gmall0822/bean/UserInfo;)Lcom/max/gmall0822/bean/UserInfo;
+
+
+2,個個業務模塊, 調用認證中心服務的代碼 (util-web)
+	(利用http-client調用"D:\guli\谷粒商城张晨版\谷粒商城源码\单点登录\工具类\util\HttpClientUtil.java")
+	
+	1  检查是否有token    
+		如果没有 重定向到认证中心的登录页面 
+	    
+	2  用户拿到token了 
+		校验  向认证中心发起校验  （有选择性的发起 ， 只有需要用户登录的功能）
+			   
+		把token写入到cookie 
+			   
+		从cookie的token 获取基本信息（用户id 、昵称）(不能亂放,資料第一可能不準,第二可能不安全),  
+		加载到请求属性,可以供页面简单显示 
+
+三、	业务模块页面登录情况检查
+
+任何一個地方都有可能需要檢查token,怎麼寫比較好?
+=>
+攔截器或過濾器(這裡使用攔截器)
+
+攔截器 : 每一個請求都攔下來做驗證
+		
+	[補]
+	cookie的作用域 : 
+		cart.gmall.com cookie中存入某個值,那麼我在order.gmall.com 不能把這個值取出來.
+		那怎辦呢?
+		
+		cart.gmall.com domain設成 gmall.com
+		order.gmall.com domain設成 gmall.com
+		
+		如何設 :
+			setdomain
+			setpath (連路徑也要一樣才算同域名) 如: gmall.com/login != gmall.com/verify
+		
+		domain 域名 :
+			cart.gmall.com order.gmall.com => 同網站 gmall.com = gmall.com (前面可以自己取服務器名)
+			order.gmall.com.cn order.gmall.com => 不同網站 gmall.com.cn != gmall.com
+			
+3. 检验方法是否需要验证用户登录状态
+
+因為不是所有的請求都需要用戶登入, 那該怎麼寫, 才可以比較好處理哪個模塊需要判斷是否需要驗證用戶登入?
+
+=> 自定義註解 loginRequire
+
+	@Target(ElementType.METHOD)  <== target : 修飾註解是註解在那的,是方法還是類還是參數上
+	@Retention(RetentionPolicy.RUNTIME) <== Retention : 運行級別(策略) 常見有兩種 source : 一編成class註解就沒了,如overirde ; runtime
+	public @interface LoginRequire {
+
+		boolean autoRedirect() default true; <== 定義註解的參數
+	}
+	
+	[補] 記得每個啟動類都要新增註解@ComponentScan(basePackages = "com.max.gmall0822"),否則會掃描不到,因為攔截器寫在com.max.gmall0822.interceptor
+	@SpringBootApplication
+	@ComponentScan(basePackages = "com.max.gmall0822")
+	public class Gmall0822ItemWebApplication {
+
+		public static void main(String[] args) {
+			SpringApplication.run(Gmall0822ItemWebApplication.class, args);
+		}
+
+	}
+			
+			

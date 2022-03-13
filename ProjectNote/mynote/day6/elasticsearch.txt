@@ -1,0 +1,31 @@
+[補]
+速度 	快	  		更快	慢
+		MYSQL 		ES 		Hadoop
+數據量	小	  		中		大
+		
+優:		一致性
+		事務
+缺:					一致性
+					事務
+---				
+MySQL 一定放一手數據,所以一定要保證不能漏
+ES 放的都是拷貝,所以使用異步存儲,以犧牲一點準確性,來加強速度
+Hadoop優點,買一送二 ELK
+			ES : 存放數據
+			Logstash : 採集知識
+			Kibana  : 大數據領域,經常需要產報表,每次都手動畫太慢了,所以用Kibana (把數據都導入ES, Kibana5~10分鐘就產出一個報表)
+---			
+DSL相比SQL JOIN弱,DSL通常是單表操作.
+所以通常是JOIN完後的數據才丟入ES.
+
+--
+名詞解釋
+elasticsearch(5.x) 	MYSQL		elasticsearch(6.x) 每個index只能建一個type	 elasticsearch(7.x) type廢掉了
+
+index				=database
+		
+type				=table		index (type=tablename_description)
+		
+document			=row		document
+		
+field				=column		field

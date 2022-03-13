@@ -1,0 +1,27 @@
+idea git 
+	紅色:該文件未被追蹤,未被提交
+	藍色:已經提交過, 而且還有修改
+	黑色:已經提交過, 而且沒有被修改過
+	綠色:進入到暫存區, 沒有進行過提交
+
+Intellij idea 2017 Artifacts配置 https://blog.csdn.net/u014042066/article/details/75299002
+Java - 五分鐘學會 Lombok 用法 https://kucw.github.io/blog/2020/3/java-lombok/
+物件相等性 https://openhome.cc/Gossip/JavaEssence/ObjectEquality.html
+maven dependencies not found. showing errors in version https://stackoverflow.com/questions/47479419/maven-dependencies-not-found-showing-errors-in-version
+Maven教程 https://www.runoob.com/maven/maven-tutorial.html
+[MySQL] 取得資料表與欄位註解內容 https://fannys23.pixnet.net/blog/post/30008933
+
+package com.max.gmail0822.user.bean;
+@Data : getter,setter
+@NoArgsConstructor : 無參構造函數
+@Column : 標示對應database的column
+@Id : 標示主鍵
+@GeneratedValue(strategy = GenerationType.IDENTITY) : 標示自增
+
+詳解Spring註解–@Autowired、@Resource和@Service https://codertw.com/%E7%A8%8B%E5%BC%8F%E8%AA%9E%E8%A8%80/309475/
+spring-boot整合通用mapper https://codertw.com/%E7%A8%8B%E5%BC%8F%E8%AA%9E%E8%A8%80/81477/
+SpringBoot项目整合通用mapper出现的InvocationTargetException异常 https://www.codenong.com/cs107064393/
+使用JDBC连接MySql时出现：The server time zone value '�й���׼ʱ��' is unrecognized or represents more than one time zone. You must configure either the server or JDBC driver (via the serverTimezone configuration
+https://www.cnblogs.com/EasonJim/p/6906713.html
+注入映射器 (Mapper) https://mybatis.org/spring/zh/mappers.html
+IntelliJ Idea 常用快捷键 列表(实战终极总结！！！！) https://zhuanlan.zhihu.com/p/71889976

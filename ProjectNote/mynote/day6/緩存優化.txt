@@ -1,0 +1,411 @@
+性能優化:
+優化難度由下往上遞增
+
+[優化手段]  [優化難度]
+CPU     	JVM			難,且效果差
+記憶體  	|			^
+網路	   	|			V
+磁碟    	IO			易,且效果好 => 其中一種辦法 : 尽量避免直接查询数据库,緩存 : Redis
+
+[補] CAP : Cache Aside Pattern (緩存在側模式XD)
+
+	 tomcat緩存
+	 ecache : 直接在Tomcat JVM內開闢一個空間作緩存
+	 		
+	 		缺點 : 內存有大量冗餘,因為Tomcat是集群,機器越多,每台機器都可能存在同樣的緩存,而造成冗餘
+	 		
+	 		所以常用的方案通常會是Redis獨立緩存,不過相比ecache還多了一條網線,所以相比ecache慢了點,但相對好維護管理(Tomcat集群如何同步ecache是個問題),
+	 		內存浪費也較少
+--
+整合redis到大工程中
+
+(1)安裝 略
+(2)引包 略
+(3)Redis util-service新增
+package com.max.gmall0822.util;
+
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.JedisPoolConfig;
+
+public class RedisUtil {
+    private JedisPool jedisPool;
+
+    public void initJedisPool(String host,int port,int database){
+        JedisPoolConfig jedisPoolConfig = new JedisPoolConfig();
+        // 总数 : 與併發有關
+        jedisPoolConfig.setMaxTotal(200);
+        
+        // 如果到最大数，设置等待
+        jedisPoolConfig.setBlockWhenExhausted(true);
+		
+		// 获取连接时等待的最大毫秒
+        jedisPoolConfig.setMaxWaitMillis(1000);
+		
+		// 原本尖峰時請求200個,之後沒那麼多了,維護連接是消耗資源的,所以需進行釋放,
+		// jedisPoolConfig.setMinIdle(10) : 但至少保留10個連接
+		// jedisPoolConfig.setMaxIdle(10) : 最多保留10,200個連進來後,沒那麼多個了,可以趕緊釋放成10個
+		// Min,Max設成一樣10,表示Redis會一直想辦法將連線數維持到10
+        // 最少剩余数
+        jedisPoolConfig.setMinIdle(10);
+		
+		// 最大剩余数
+		jedisPoolConfig.setMaxIdle(10);
+		
+        // 在获取连接时，检查是否有效 : 因為有可能Tomcat那邊的連接對象已經斷掉 
+        jedisPoolConfig.setTestOnBorrow(true);
+		
+        // 创建连接池
+        jedisPool = new  JedisPool(jedisPoolConfig,host,port,2*1000);
+
+		}
+		public Jedis getJedis(){
+			Jedis jedis = jedisPool.getResource();
+			// jedis.close(); // 關閉連結池, 如果資源在使用,會自動把資源還回去
+			return jedis;
+		}
+}
+
+(4)容器加載Redis
+
+@Configuration <= 相當於xml配置
+public class RedisConfig {
+
+    //读取配置文件中的redis的ip地址
+    @Value("${spring.redis.host:disabled}") //@Value 從配置文件中 讀取相關配置
+    private String host;
+
+    @Value("${spring.redis.port:0}")
+    private int port;
+
+    @Value("${spring.redis.database:0}")
+    private int database;
+
+    @Bean <= 啟動容器會過來掃,Redis做初始化
+    public RedisUtil getRedisUtil(){
+        if(host.equals("disabled")){
+            return null;
+        }
+        RedisUtil redisUtil=new RedisUtil();
+        redisUtil.initJedisPool(host,port,database);
+        return redisUtil;
+    }
+
+}
+
+(5)
+任何模块想要调用redis都必须在application.properties配置，否则不会进行注入。
+spring.redis.host=redis.gmall.com
+spring.redis.port=6379
+spring.redis.database=0
+
+(6)測試
+@Service
+public class ManageServiceImpl implements ManageService {
+
+	@Autowired
+    RedisUtil redisUtil;
+		
+	//查詢skuInfo
+    public SkuInfo getSkuInfo(String skuId) {
+        //測試
+        try{
+            Jedis jedis = redisUtil.getJedis();
+            jedis.set("k1","v1");
+            jedis.close();
+        }catch (JedisConnectionException e){
+            e.printStackTrace();
+        }
+
+[error]
+Description:
+
+Field redisUtil in com.max.gmall0822.manage.serivce.impl.ManageServiceImpl required a bean of type 'com.max.gmall0822.util.RedisUtil' that could not be found.
+
+Action:
+
+Consider defining a bean of type 'com.max.gmall0822.util.RedisUtil' in your configuration.
+=>
+原因 : com.max.gmall0822.util.RedisUtil與com.max.gmall0822.manage.Gmall0822ManageServiceApplication 在不同層級,因此掃描不到
+解決 :Gmall0822ManageServiceApplication　加入註解　@ComponentScan(basePackages = "com.max.gmall0822")　擴大掃瞄範圍
+
+(7)打開redis查看是否成功
+
+[erro] Could not get a resource from the pool : redis.conf需要配置 (參見redis教材)
+
+(8)
+getSkuInfo方法改為getSkuInfoDB,因為原本的getSkuInfo要改為先讀緩存
+
+[補]redis有什麼type?
+String
+Set
+List
+Hash
+Zset
+
+使用redis就是無腦三步驟 : 定義結構 type , key, value 
+
+  public static final String SKUKEY_PREFIX="sku:";
+  public static final String SKUKEY_INFO_SUBFIX=":info";
+  //過期時間(應該在這定義為了方便調試,定義在方法內)
+  // public static final int SKU_EXPIRE=3 
+  
+  
+  @Override
+    public SkuInfo getSkuInfo(String skuId) {
+        SkuInfo skuInfoResult=null;
+        // 1,先查redis 沒有再查數據庫
+        Jedis jedis = redisUtil.getJedis();
+        //過期時間,方便調試所以定義在這
+        int SKU_EXPIRE=3;
+        // redis結構 : 1,type : String
+        // 為什麼不hash,因為過期時間,hash雖然可以拆很多份,但是所有sku相關資料的過期時間都同一個,考慮相關業務需求,所以使用String
+        // 2,key : sku:101:info
+        // 3,value : skuInfoJson
+        String skuKey=SKUKEY_PREFIX+skuId+SKUKEY_INFO_SUBFIX;
+        String skuInfoJson= jedis.get(skuKey);//查詢緩存
+        if(skuInfoJson!=null){
+            System.out.println(Thread.currentThread()+"命中緩存!"); //得到線程訊息
+            skuInfoResult = JSON.parseObject(skuInfoJson,SkuInfo.class);
+
+        }else{
+           
+            System.out.println(Thread.currentThread()+"得到鎖!"); //得到線程訊息
+            System.out.println(Thread.currentThread()+"未命中!"); //得到線程訊息
+            skuInfoResult=getSkuInfoDB(skuId);
+            System.out.println(Thread.currentThread()+"寫入緩存!"); //得到線程訊息
+            String skuInfoJsonResult = JSON.toJSONString(skuInfoResult);
+            jedis.setex(skuKey,SKU_EXPIRE,skuInfoJsonResult);//set :寫入緩存 setex:寫入緩存,同時設計過期時間
+           
+        }
+
+        jedis.close();
+        return skuInfoResult;
+    }
+
+  
+	[問題點]
+	1, 緩存擊穿 : 當數據沒有緩存的時候, 正好有很多個請求一起去訪問數據.鎖?Java的lcok,sync可以嗎?可以,但只限制一台機器,JVN無法實現集群併發問題
+			
+		[解法]
+		分布式鎖 : 獨立於集群存在,所有集群想要訪問Mysql時,都去訪問他,他說的算,能拿到鎖就去訪問mysql,鎖只有一個,沒有你就等著.
+		=> 所以redis單線程是優點,一個一個處理.
+		
+		使用:
+		// setnx =>
+		// 鎖為什麼不用這兩步驟代替就好要用setnx? 1,查鎖 exists 2,搶鎖 set ?
+		// 因為分兩步驟仍有多個人拿到鎖的可能, 用setnx一步驟操作就不會有這種情況發生
+				
+		@Override
+		public SkuInfo getSkuInfo(String skuId) {
+			SkuInfo skuInfoResult=null;
+			// 1,先查redis 沒有再查數據庫
+			Jedis jedis = redisUtil.getJedis();
+			//過期時間,方便調試所以定義在這
+			int SKU_EXPIRE=3;
+			// redis結構 : 1,type : String
+			// 為什麼不hash,因為過期時間,hash雖然可以拆很多份,但是所有sku相關資料的過期時間都同一個,考慮相關業務需求,所以使用String
+			// 2,key : sku:101:info
+			// 3,value : skuInfoJson
+			String skuKey=SKUKEY_PREFIX+skuId+SKUKEY_INFO_SUBFIX;
+			String skuInfoJson= jedis.get(skuKey);//查詢緩存
+			if(skuInfoJson!=null){
+				System.out.println(Thread.currentThread()+"命中緩存!"); //得到線程訊息
+				skuInfoResult = JSON.parseObject(skuInfoJson,SkuInfo.class);
+
+			}else{
+				// setnx =>
+				// 鎖為什麼不用這兩步驟代替就好? 1,查鎖 exists 2,搶鎖 set ?
+				// 因為分兩步驟仍有多個人拿到鎖的可能, 用setnx一步驟操作就不會有這種情況發生
+				//定義鎖的結構 type : String, key : sku:101:lock value : locked (隨便取)
+				String lockkey = SKUKEY_PREFIX+skuId+SKUKEY_LOCK_SUBFIX;
+				Long locked = jedis.setnx(lockkey, "locked");//拿鎖成功返回1,失敗返回0
+				if(locked==1){
+					System.out.println(Thread.currentThread()+"得到鎖!"); //得到線程訊息
+					System.out.println(Thread.currentThread()+"未命中!"); //得到線程訊息
+					skuInfoResult=getSkuInfoDB(skuId);
+					System.out.println(Thread.currentThread()+"寫入緩存!"); //得到線程訊息
+					String skuInfoJsonResult = JSON.toJSONString(skuInfoResult);
+					jedis.setex(skuKey,SKU_EXPIRE,skuInfoJsonResult);//set :寫入緩存 setex:寫入緩存,同時設計過期時間
+				} else {
+					System.out.println(Thread.currentThread()+"未得到鎖,開始自旋等待!"); //得到線程訊息
+					// 輪詢(每隔一段時間,問一下鎖用完了沒),自旋(調自己)
+					try {
+						Thread.sleep(1000);
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}
+					getSkuInfo(skuId);
+				}
+			}
+
+			jedis.close();
+			return skuInfoResult;
+		}
+		[問題]
+		2,當某個線程占用鎖時間過長,或者完全沒有釋放鎖的能力的時候如何處理?
+		  釋放鎖,設定過期時間 set key value nx ex xx
+			
+			// setnx =>
+			// 鎖為什麼不用這兩步驟代替就好? 1,查鎖 exists 2,搶鎖 set ?
+			// 因為分兩步驟仍有多個人拿到鎖的可能, 用setnx一步驟操作就不會有這種情況發生
+			//定義鎖的結構 type : String, key : sku:101:lock value : locked (隨便取)
+			String lockKey = SKUKEY_PREFIX+skuId+SKUKEY_LOCK_SUBFIX;
+			// 但這樣分成兩步驟, 最好設成一步.
+			//Long locked = jedis.setnx(lockKey, "locked");//拿鎖成功返回1,失敗返回0
+			//jedis.expire(lockKey,10);//設定預期時間
+			String locked = jedis.set(lockKey, "locked", "NX", "EX", 10);
+			
+			if("OK".equals(locked)){
+				System.out.println(Thread.currentThread()+"得到鎖!"); //得到線程訊息
+				System.out.println(Thread.currentThread()+"未命中!"); //得到線程訊息
+				skuInfoResult=getSkuInfoDB(skuId);
+				System.out.println(Thread.currentThread()+"寫入緩存!"); //得到線程訊息
+				String skuInfoJsonResult = JSON.toJSONString(skuInfoResult);
+				jedis.setex(skuKey,SKU_EXPIRE,skuInfoJsonResult);//set :寫入緩存 setex:寫入緩存,同時設計過期時間
+				System.out.println(Thread.currentThread()+"釋放鎖!"+lockKey); //得到線程訊息
+				jedis.del(lockKey);//釋放鎖 如果DB卡住?設定過期時間.
+			} else {
+				System.out.println(Thread.currentThread()+"未得到鎖,開始自旋等待!"); //得到線程訊息
+				// 輪詢(每隔一段時間,問一下鎖用完了沒),自旋(調自己)
+				try {
+					Thread.sleep(1000);
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+				getSkuInfo(skuId);
+			}
+			
+		3,應獲得鎖的線程A處理超時, 鎖被釋放, 線程B得到鎖, 線程A在線程B處理的時候, 完成了自己的工作要釋放鎖, 會錯誤的把線程B的鎖釋放掉,造成線程C又得到了鎖.
+		 =>怎麼避免誤刪了別人的鎖?
+		 [解]讓得到鎖的線程只會釋放自己的鎖 => 隨機生成一個TOKEN保存在線程中的變量, 釋放鎖的時候進行判斷,只釋放value值是token的.
+		 
+		   String token = UUID.randomUUID().toString();
+		   String locked = jedis.set(lockKey, token, "NX", "EX", 10);
+		   
+			if(jedis.exists(lockKey) && token.equals(jedis.get(lockKey))){
+				jedis.del(lockKey);//釋放鎖 如果DB卡住?設定過期時間.
+			}
+		 
+		 UUID 通用唯一辨識碼 https://zh.wikipedia.org/zh-tw/%E9%80%9A%E7%94%A8%E5%94%AF%E4%B8%80%E8%AF%86%E5%88%AB%E7%A0%81
+		 
+		4,通過lockKey中的value進行判斷, 判斷通過後再要執行刪除前, 突然鎖被換掉, 實際刪除還是刪除別人的
+		=> 因為判斷語句和刪除語句的非原子化造成的.
+		 [解] (1)事務可以把命令打包成原子 , 但是會取消掉晚提交的事務.
+				可以,但太暴力,假若有AB兩組事務,B組並不一定要踢掉,可以等,雖說可以另外在寫.(麻煩)
+			  (2)用lua腳本,實現事務的"串"行執行(將併發事件變成排列順序執行) (推薦)
+			  (3)利用redisson的lock (v)
+				redisson 利用 redis的特性與JUC的特性結合起來,底層還是redis
+				[補]JUC 可以實現單機線程安全,但集群管不了
+				
+					redission的lock 比 手工實現的redis分布式鎖有哪些方便的地方?
+					1,不會釋放別人的鎖
+					2,redis的鎖 
+						鎖的特性(1)互斥 (2)阻塞, 但redis只有做到互斥,阻塞需要我們自己實現(自旋)
+					3,重入性 : 自己建的鎖可以再次取存, redis需要手動實現,reddison已內建
+					
+					問題1緩存擊穿 : lock解決
+					問題2當某個線程占用鎖時間過長,或者完全沒有釋放鎖的能力的時候如何處理? : lock上有參數可以設置鎖的過期時間
+					問題3怎麼避免誤刪了別人的鎖? : 不會釋放別人的鎖
+					其他 : 不用手工進行自旋等待操作, 而且還可以設定等候的超時時間
+					
+		[解2]嘗試使用redisson加鎖 實現業務
+		引入redisson
+		<dependency>
+		   <groupId>org.redisson</groupId>
+		   <artifactId>redisson</artifactId>
+		   <version>3.11.1</version>
+		</dependency> 
+		
+		---
+		
+		//使用redisson
+        Config config = new Config();
+        config.useSingleServer().setAddress("redis://redis.gmall.com:6379");
+
+        RedissonClient redissonClient = Redisson.create(config);
+        String lockKey = SKUKEY_PREFIX+skuId+SKUKEY_LOCK_SUBFIX;
+        RLock lock = redissonClient.getLock(lockKey);
+        //lock.lock(10, TimeUnit.SECONDS);//等候時間10秒
+        boolean locked = false;
+        try {
+            locked = lock.tryLock(10, 5, TimeUnit.SECONDS);//鎖有效時間5秒,等候時間10秒
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        if(locked){
+            System.out.println(Thread.currentThread()+"得到鎖!"); //得到線程訊息
+            //如果得到鎖後能夠在緩存中查詢,那麼直接使用緩存數據,不用再查詢數據庫
+            System.out.println(Thread.currentThread()+"再次查詢緩存!"); //得到線程訊息
+            String skuInfoJsonResult= jedis.get(skuKey);//查詢緩存
+
+            if(skuInfoJsonResult!=null){
+                if(!"EMPTY".equals(skuInfoJsonResult)){
+                    System.out.println(Thread.currentThread()+"命中緩存!"); //得到線程訊息
+                    skuInfoResult = JSON.parseObject(skuInfoJsonResult,SkuInfo.class);
+                }
+            }else {
+                skuInfoResult=getSkuInfoDB(skuId);
+                System.out.println(Thread.currentThread()+"寫入緩存!"); //得到線程訊息
+
+                if(skuInfoResult!=null){
+                    skuInfoJsonResult = JSON.toJSONString(skuInfoResult);
+                }else{
+                    skuInfoJsonResult="EMPTY";
+                }
+                jedis.setex(skuKey,SKU_EXPIRE,skuInfoJsonResult);//set :寫入緩存 setex:寫入緩存,同時設計過期時間
+            }
+
+            lock.unlock(); //釋放鎖
+		
+		Redisson实现分布式锁(2)—RedissonLock https://www.cnblogs.com/qdhxhz/p/11055426.html
+
+					
+	2,另一種穿透
+		查詢一個不存在於緩存和數據庫的數據,永遠不會加載緩存, 會反覆查詢數據庫, 造成io壓力
+		
+		[解決]把一個空值(以empty代表,不用null,避免誤會)放到緩存中,表示數據暫時沒值.
+	
+[補] 寫操作 緩存怎麼處理?
+		當數據發生主動變化的時候,如何處理緩存?
+			緩存是清理還是更新? 清理
+			
+			刪除(清理)緩存 失效緩存
+				缺點 : 增加一次的miss
+				
+			更新緩存
+				缺點 : 併發修改時,由於亂序問題,可能造成數據庫與緩存不一致
+				[例]
+				數據庫資料是B1,但是緩存是A2
+				
+				10:00 00:01			10:00 00:02
+				A1 數據庫寫入		B1數據庫寫入
+				10:00 00:04			10:00 00:03
+				A2 緩存更新			B2緩存更新
+			
+		先更新數據庫還是先刪緩存? 
+								  [解一]AP方案 : 關注可用性
+								  有主要次要結構的數據庫,不要先刪緩存, 
+								  因為當數據庫沒有同步到次要的時候,次要被讀取,會把舊數據更新到緩存中,造成數據庫是新數據而緩存是舊數據
+								  
+									[例]資料要更新成為B , 如果先刪除緩存
+											緩存 NULL => 數據庫(主) 資料B => 同步給 數據庫(副)(延遲) => 數據庫(副) 資料B
+									
+											=> 數據庫(副) 資料A => 緩存抓取資料A => 緩存A
+								  
+								  後刪緩存,有可能數據更新成功,緩存更新失敗,造成數據庫與緩存不一致
+								  
+								  所以保險起見,可以前後都刪一次緩存
+								  
+								  [解二]CP方案 : 關注一致性
+								  在做更新數據之前,加鎖直到數據庫更新完,期間不允許其他線程對數據庫和緩存進行任何的讀和寫.
+								  但會降低可用性.
+								  
+								  
+								  CAP定理 https://zh.wikipedia.org/wiki/CAP%E5%AE%9A%E7%90%86
+		
+
+				
+				
+			

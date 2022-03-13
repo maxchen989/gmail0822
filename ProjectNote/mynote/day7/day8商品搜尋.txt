@@ -1,0 +1,250 @@
+ 商品搜尋
+ 
+	保存
+		在哪ES
+		數據結構
+			es 6.x 索引 index ~= mysql表 
+			
+			es 索引的定義 Mapping 
+			
+			字段 : 要查詢出的字段 要包含涉及過濾的字段
+			
+				名稱 價格 sku_id 平台屬性值(多個) 三級分類  描述 
+				
+			分三種字段 
+				優點 : 分三種優點為節省資源,因為 默認 凡是字符串 一律進行索引且分詞,但有些不需要.
+				
+				1, 需要分詞 (最麻煩) : 商品名稱 
+												字段類型 字符串類型 text(分詞) 選 keyword(不分詞)不選
+												分詞器 設定自訂義分詞器 ik_smark(盡可能少的分詞) ik_max_work(盡可能多的分詞)
+												
+				2, 需要索引但不需要分詞 : 價格, 平台屬性, 三級分類 
+																		
+												如果是字符串 字段類型 選用 keyword
+				
+				3, 不需要索引的字段 : 圖片路徑, sku_id, 描述
+												es是默認天然索引 index_false 不需要索引
+												
+			定義 Mapping
+			
+			dsl五種操作 : get put post delete
+			什麼時候put post?
+			put 冪等 : 類 CREATE 
+			post 非冪等 : 類 INSERT 
+			
+			PUT gmall_sku_info
+			{
+			  "mappings": {
+				"_doc":{
+				  "properties": {
+					"id":{
+					  "type": "keyword"
+					  , "index": false
+					},
+					"price":{
+					  "type": "double"
+					},
+					 "skuName":{
+					  "type": "text",
+					  "analyzer": "ik_max_word"
+					},
+					"catalog3Id":{
+					  "type": "keyword"
+					},
+					"skuDefaultImg":{
+					  "type": "keyword",
+					  "index": false
+					},
+					"skuAttrValueList":{
+					  "properties": {
+						"valueId":{
+						  "type":"keyword"
+						}
+					  }
+					}
+				  }
+				}
+			  }
+			}
+			
+		[補充]
+		"skuAttrValueList":{
+						  "properties": {
+							"valueId":{
+							  "type":"keyword"
+							}
+						  }
+						}
+		=>
+		1:N關係
+		---
+		PUT /gmall0822_sku_info/_doc/1                   <--- gmall0822_sku_info : index ; _doc : type ; 1:id(主鍵)
+		{
+		  "id":1,
+		  "price":2200.00,
+		  "skuName":"iphone手機xxxx",
+		  "catalog3Id":"69",
+		  "skuDefaultImg":"http://file.gmall.com/xxfafa/",
+		  "skuAttrValueList":[
+			{"valueId":"101"},
+			 {"valueId":"102"}
+		  ]
+		  
+		}
+		=>通過命令行添加數據
+		=>實際是要用javaBean寫入
+		=>定義es用的javabean
+		
+		---
+		安裝elasticsearch遇到的問題
+		(1)http://192.168.72.128:5601/ Kibana server is not ready yet
+		修改kibana.yml
+		elasticsearch.hosts 改成你es容器的ip，然后将
+		xpack.monitoring.ui.container.elasticsearch.enabled 改成 false
+		elasticsearch.url 也有查到所要改
+		
+		Kibana server is not ready yet出现的原因 https://blog.csdn.net/FV8023/article/details/96427702
+		docker启动容器之后马上又自动关闭了 https://blog.csdn.net/fengqing5578/article/details/94554897
+		Run container but exited immediately https://forums.docker.com/t/run-container-but-exited-immediately/18811
+		Docker搭建kibana访问出现[Kibana server is not ready yet]的问题 https://juejin.im/post/6844904078141554696
+		解决：-bash: unzip: command not found （Linux 中 unZip/Zip 的安装及使用） https://blog.csdn.net/u011314442/article/details/81474905
+		docker 安装ElasticSearch的中文分词器IK https://www.cnblogs.com/yufeng218/p/12128513.html
+	
+	開發
+		因為只有搜尋使用es,新建模塊list-service
+		
+		導入依賴
+		<dependency>
+		   <groupId>org.springframework.boot</groupId>
+		   <artifactId>spring-boot-starter-data-elasticsearch</artifactId>
+		</dependency>
+
+		<!-- https://mvnrepository.com/artifact/io.searchbox/jest -->
+		<dependency>
+		   <groupId>io.searchbox</groupId>
+		   <artifactId>jest</artifactId>
+		   <version>5.3.3</version>
+		</dependency>
+
+
+		<!-- https://mvnrepository.com/artifact/net.java.dev.jna/jna -->
+		<dependency>
+		   <groupId>net.java.dev.jna</groupId>
+		   <artifactId>jna</artifactId>
+		   <version>4.5.1</version>
+		</dependency>
+		
+		--
+		application.properties
+		server.port=8094
+
+		spring.elasticsearch.rest.uris=http://es.gmall.com:9200
+		
+		//因為有配置util-service,所以就算沒用到,還是需要配置database連接
+		spring.datasource.url=jdbc:mysql://127.0.0.1:3306/gmall0822?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC
+		spring.datasource.username=root
+		spring.datasource.password=123456788
+		mapper.identity=MYSQL
+		spring.dubbo.application.name=manage-service
+		spring.dubbo.registry.protocol=zookeeper
+		spring.dubbo.registry.address=zk.gmall.com:2181
+		spring.dubbo.base-package=com.max.gmall0822
+		spring.dubbo.protocol.name=dubbo
+		--
+		public class ListServiceImpl {
+
+			@Autowired
+			JestClient jestClient; //連接es
+
+			public void saveSkuLSInfo(SkuLsInfo skuLsInfo){
+
+				//Index生成器
+				Index.Builder indexBuilder = new Index.Builder(skuLsInfo);
+				indexBuilder.index("gmall0822_sku_info").type("_doc").id(skuLsInfo.getId()); // type可以隨便寫 ; id不寫隨機生成
+				Index build = indexBuilder.build();
+				try {
+					jestClient.execute(build);
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+
+		}
+		
+		
+		[補充]
+		jest : java => jest => es
+		(現在似乎改成rest)
+		
+		老師習慣 808x 給web用
+				 809x 給service用	
+		---
+		[商品查詢dsl]
+		# 商品名稱的全文檢索 : query
+		# 根據3級分類 進行過濾
+		# 根據平台屬性值 進行過濾
+		# 根據價格範圍 進行過濾
+		# 分頁   : from size
+
+			
+		GET gmall0822_sku_info/_search
+		{
+		  "query": {
+			//商品名稱的全文檢索
+			"bool": { //超過兩個條件的時候要用bool包
+			  "must": [
+				{"match": {
+				  "skuName": "iphone 紅"
+				}
+				}
+			  ],
+			  "filter": [
+				{"term": {
+				  "catalog3Id": "23" // 根據3級分類 進行過濾
+				}},{
+				   "term": {
+				  "skuAttrValueList.valueId": "23" //根據平台屬性值 進行過濾
+				}},{
+				   "term": {
+				  "skuAttrValueList.valueId": "38" //根據平台屬性值 進行過濾
+				}},
+				{
+				  "range":{
+					"price":{"gte":100} //根據價格範圍 進行過濾 ; gte 大于等于 great than or equals
+				  }
+				}
+			  ]
+			}
+			}
+		  //分頁
+		  //,"from":2
+		  // ,"size":0
+		  ,"highlight": {"fields": {"skuName": {"pre_tags": "<span style='color:red","post_tags": "</span>"}}} //高亮
+		  ,"aggs": {
+			"groupby_valueId": {
+			  "terms": {
+				"field": "skuAttrValueList.valueId",
+				"size": 1000
+			  }
+			}
+		  },
+		  "sort": [ //按熱度進行排序
+			{
+			  "hotScore": {
+				"order": "desc"
+			  }
+			}
+		  ]
+		  }
+						 
+		Elasticsearch——分页查询From&Size VS scroll https://www.cnblogs.com/xing901022/p/5284902.html
+		
+		如何嵌入Java?
+		
+		intellij idea 的快捷键方法 https://www.cnblogs.com/Im-Victor/p/11057213.html
+		
+		
+	
+	
+	
+	

@@ -1,0 +1,124 @@
+1.4  面向服务的分布式架构
+註冊中心:儲存各個服務器狀態或配置的資料庫,不同的是有發生變化會通知
+ex:
+dubbo=> zookeeper
+sring cloud=> Eureka
+
+1.5  dubbo架构图
+Registry : 就是zookeeper
+4 invoke : 如果Registry掛了,Consumer與Provider還是可以作用
+			不過如果Consumer與Provider其中有一個壞了,因為invoke是同步的,所以會一直等待.
+
+1 搭建parent模块，所有的jar包管理。
+=> 不用寫代碼,只需修改porm.xml進行dependencyManagement
+
+2 创建bean模块bean
+=>
+parent可以使用parent,但預設Location記得要要退一個,使在目錄結構上看起來是兄弟關係,但實際上我們知道是父子關係
+
+6.1 搭建订单的gmall-order-web模块工程，用springboot创建？
+=>
+創建好的gmall-order-web模塊,porm.xml預設parent是
+ <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.3.3.RELEASE</version>
+        <relativePath/> <!-- lookup parent from repository -->
+ </parent>
+ 但這樣就會有兩個不同的parent(gmall0822-parent),那要用哪一個呢?
+ 當然還是利用我們創建的parent,也就是把在讓parent繼承spring-parent的意思
+ 把上面的parent給gmall0822-parent,而gall-order-web改為
+ <parent>
+        <artifactId>gmall0822-parent</artifactId>
+        <groupId>com.max.gmall0822</groupId>
+        <version>1.0-SNAPSHOT</version>
+        <relativePath>../gmall0822-parent/pom.xml</relativePath>
+ </parent>
+ 
+ 而原本預設的dependencies也不用,因為其他util-web已經有了,所以改成繼承util-web與util-interface
+ <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.junit.vintage</groupId>
+                    <artifactId>junit-vintage-engine</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+</dependencies>
+=>
+dependencies>
+        <dependency>
+            <groupId>com.max.gmall0822</groupId>
+            <artifactId>gmall0822-interface</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.max.gmall0822</groupId>
+            <artifactId>gmall0822-util-web</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+    </dependencies>
+
+開發gmall-order-web的controller會用到UserService,但是原本都只在gmail0822-user-manage
+=>
+把gmail0822-user-manage內的interface,bean拉到分布式架構該有的位置去
+interface => gmall0822-interface
+bean => gmall0822-bean
+
+分布式環境搭建
+dubbo-admin-2.6.0-war安装部署 https://blog.csdn.net/a123abc123abc/article/details/80777024
+=>
+因為收不到老師發的war包,所以上github上自己打war包
+
+dubbo-admin监控搭建2.6.0版本 https://www.cnblogs.com/116970u/p/11210812.html
+
+簡單介紹Java 的JAR包、EAR包、WAR包區別 https://kknews.cc/code/yraqqpk.html
+
+IDEA如何执行maven命令进行打包编译及常用命令 https://blog.csdn.net/Zheng_xiao_xin/article/details/80732865
+
+[linux]
+安裝VMware Tools顯示灰色正確解決辦法 https://www.itread01.com/content/1550617032.html
+解決VMware的VMware tools呈灰字無法安裝問題 https://home.gamer.com.tw/creationDetail.php?sn=4110052
+資料夾找不到共用選項 https://www.fox-saying.com/blog/post/43773565-windows10
+【问题记录】VMware Tools是灰色的，不能安装 https://www.cnblogs.com/TM0831/p/11788018.html
+[Linux] Ubuntu在VMware虛擬機設定共用資料夾 http://mh-resource.blogspot.com/2018/03/linux-ubuntuvmware.html
+VMware與Centos建立共享文件夾 https://www.itread01.com/content/1504546801.html
+linux命令jps意思是什么 https://blog.csdn.net/u014643282/article/details/79361782
+liunx下/opt目录与/usr目录的区别 https://blog.csdn.net/ybsun2010/article/details/8681275
+本機 連線 virtualbox 的 tomcat 網頁 https://ysde.blogspot.com/2012/09/virtualbox-virtualbox-tomcat.html
+RHEL/Centos 7 防火牆管理：啟動、停止、關閉、致能 https://linux.incomeself.com/rhel-centos-7-%E9%98%B2%E7%81%AB%E7%89%86%E7%AE%A1%E7%90%86-%E5%95%9F%E5%8B%95-%E5%81%9C%E6%AD%A2-%E9%97%9C%E9%96%89-%E8%87%B4%E8%83%BD/
+
+[zookeeper]
+zookeeper配置檔案zoo.cfg詳細講解 https://www.itread01.com/content/1545426385.html
+
+[搭建過程]
+將dubbo-admin.war複製到
+
+3.3  提供端
+提供端在实现类上增加注解 @Service，和spring的是一样的但是引的包是不一样的。
+=>
+本來要放在bean容器裡,現在要放到註冊中心裡. @Service非之前的Sping的@Service而是Dubbo的
+=>
+import org.springframework.stereotype.Service; => import com.alibaba.dubbo.config.annotation.Service;
+
+啟動測試錯誤
+spring boot 2.x版本：java.lang.ClassNotFoundException: org.springframework.boot.bind.RelaxedDataBinder 
+https://blog.csdn.net/MCJ_2017/article/details/81204930
+springboot 启动报错Field XXX required a bean of type XXX that could not be found. https://blog.csdn.net/Julycaka/article/details/80622754
+How to change the IntelliJ IDEA JDK version? https://mkyong.com/intellij/how-to-change-the-intellij-idea-jdk-version/
+
+gmall0822-order-web.application.properties
+=>
+server.port = 8099
+=>
+因為起了兩個tomcat(gmall0822-user-manage&gmall0822-order-web),做區隔用

@@ -1,0 +1,190 @@
+商品搜索
+
+	1, 商品信息 保存到es
+	2, 根據條件 從es中查詢出商品
+	
+		查詢語言 DSL : 就是寫json串
+		
+		java中如何使用es 
+			1, dsl當成字符串, 拼湊以後傳給jest
+			2, jest中的構造查詢工具 searchSourceBuilder
+			3, es 裝sql插件
+			
+	Maven pom.xml中的元素modules、parent、properties以及import https://www.cnblogs.com/youzhibing/p/5427130.html	
+	
+	報500怎麼辦? 就看console, 一般看web模塊
+	
+1.1 为gmall-list-web模块添加静态页面
+
+	1.2.2 页面html渲染
+	
+	(1) 商品列表
+	@Controller
+	public class ListController {
+
+		@Reference
+		ListService listService;
+
+		@GetMapping("list.html")
+		// @ResponseBody //返回一個實體結果(還沒有頁面,可做測試)
+		// Model 渲染頁面用
+		public String list(SkuLsParams skuLsParams, Model model){
+			SkuLsResult skuLsResult = listService.getSkuLsInfoList(skuLsParams);
+			//新增屬性後,就可添加至html渲染
+			model.addAttribute("skuLsResult",skuLsResult);
+			//return JSON.toJSONString(skuLsResult);
+			return "list";
+		}
+	}
+	
+	
+	(2) 平台屬性
+		
+		根據搜索出來的商品的平台屬性值(多個) 查詢出對應的 平台屬性+屬性值清單列表
+		=>
+		List<BaseAttrInfo> getBaseAttrInfoListByValuIds(String valueIds);
+		---
+		 <select id="getBaseAttrInfoListByValueIds" resultMap="baseAttrList">
+        SELECT
+        bi.id,
+        attr_name,
+        catalog3_id,
+        bv.`id` attr_value_id,
+        bv.`value_name`
+        FROM `base_attr_info` bi
+        LEFT JOIN
+        `base_attr_value` bv
+        ON bi.`id` = bv.`attr_id`
+        WHERE bi.`id` IN (${valueIds}) <=用$因為拼接過程中有''
+		</select>
+		---
+		//根據多個屬性值查詢平台屬性
+		public List<BaseAttrInfo> getAttrList(List attrValueIdList);
+		--
+		 @Override
+		public List<BaseAttrInfo> getAttrList(List attrValueIdList) {
+			//attrValueIdList --> 13,14,15 : 想把List(13,14,15)轉為字串13,14,15
+
+			String valueIds = StringUtils.join(attrValueIdList.toArray(), ",");
+
+			return baseAttInfoMapper.getBaseAttrInfoListByValuIds(valueIds);
+		}
+		---
+		
+		public String list(SkuLsParams skuLsParams, Model model){
+        SkuLsResult skuLsResult = listService.getSkuLsInfoList(skuLsParams);
+        //新增屬性後,就可添加至html渲染
+        model.addAttribute("skuLsResult",skuLsResult);
+        //得到平台屬性列表清單
+        List<String> attrValueIdList = skuLsResult.getAttrValueIdList();
+        List<BaseAttrInfo> attrList = manageService.getAttrList(attrValueIdList);
+        model.addAttribute("attrList",attrList);
+        //return JSON.toJSONString(skuLsResult);
+        return "list";
+		}
+		---
+		<div class="GM_pre"  th:each="baseAttrInfo:${attrList}">
+			<div class="sl_key" >
+				<span th:text="${baseAttrInfo.attrName}" >属性1111：</span>
+			</div>
+            <div class="sl_value">
+				<ul>
+					<li th:each="baseAttrValue:${baseAttrInfo.attrValueList}" ><a  href="#"  th:text="${baseAttrValue.valueName}">属性值111</a></li>
+					<li  ><a  href="#"  >属性值222</a></li>
+				</ul>
+            </div>
+        </div>
+	
+		---
+		成功渲染上去,接下來目標 : 點"商品篩選屬性值",改變"商品搜尋內容",並將商品篩選屬性值移至"篩選條件"
+			
+			[補]
+			restful 
+			幾乎只用GET與POST,少用PUT DELETE.
+			
+			說明POST與PUT區別 => 冪等 : 同樣一個請求,執行一次與執行一萬次是一樣的.
+			
+			GET
+			
+			POST : 非冪等 Web : 新增 ; es 新增 (不指定id), 指定個別字段修改
+			
+			PUT : 冪等 Web: 修改 ; es : 新增 (指定id) , 指定id的全字段修改
+			
+			DELETE
+			
+	(3) 點擊平台屬性值的效果
+	
+		1,重新查詢商品
+			每個屬性值的點擊超鏈結 : 當前已有的所有歷史條件 + 當前屬性值的id
+			
+			@Controller
+			public class ListController {
+
+				@Reference
+				ListService listService;
+
+				@Reference
+				ManageService manageService;
+
+				@GetMapping("list.html")
+				// @ResponseBody //返回一個實體結果(還沒有頁面,可做測試)
+				// Model 渲染頁面用
+				public String list(SkuLsParams skuLsParams, Model model){
+					SkuLsResult skuLsResult = listService.getSkuLsInfoList(skuLsParams);
+					//新增屬性後,就可添加至html渲染
+					model.addAttribute("skuLsResult",skuLsResult);
+					//得到平台屬性列表清單
+					List<String> attrValueIdList = skuLsResult.getAttrValueIdList();
+					List<BaseAttrInfo> attrList = manageService.getAttrList(attrValueIdList);
+					model.addAttribute("attrList",attrList);
+					//得到歷史當前已有的所有歷史條件 + 當前屬性值的id
+
+					String paramUrl = makeParamUrl(skuLsParams);
+					model.addAttribute("paramUrl",paramUrl);// keyword=小米&valueId=106&valueId=133
+					//return JSON.toJSONString(skuLsResult);
+					return "list";
+				}
+
+				/**
+				 * 把頁面傳入的參數對象轉skuLsParams換成為ParamUrl
+				 * @param skuLsParams
+				 * @return
+				 */
+				public String makeParamUrl(SkuLsParams skuLsParams){
+					String paramUrl="";
+					if(skuLsParams.getKeyword()!=null){
+						paramUrl+="keyword="+skuLsParams.getKeyword();
+					}
+					else if(skuLsParams.getCatalog3Id()!=null){
+						paramUrl+="catalog3Id="+skuLsParams.getCatalog3Id();
+					}
+
+					if(skuLsParams.getValueId()!=null&& skuLsParams.getValueId().length>0){
+						for (int i = 0; i < skuLsParams.getValueId().length; i++) {
+							String valueId = skuLsParams.getValueId()[i];
+							if(paramUrl.length()>0){
+								paramUrl+="&";
+							}
+							paramUrl+="valueId="+valueId;
+						}
+
+					}
+					return paramUrl;
+				}
+			}
+			
+			---
+			 <div class="sl_value">
+                        <ul>
+                            <li th:each="baseAttrValue:${baseAttrInfo.attrValueList}" ><a  th:href="'/list.html?'+${paramUrl}+'&valueId='+${baseAttrValue.id}" href="#"  th:text="${baseAttrValue.valueName}">属性值111</a></li>
+							<li  ><a  href="#"  >属性值222</a></li>
+						  </ul>
+                    </div>
+			
+		2,取消點擊的屬性值的所有屬性值
+		3,增加到麵包屑當中
+		
+		
+	
+		
+		

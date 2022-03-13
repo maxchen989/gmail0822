@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html I
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:th="http://www.thymeleaf.org">>
+<head>
+    <meta charset="UTF-8">
+    <title>Tile</title>
+</head>
+<body></body>
+<input th:value="${skuInfo.skuName}">
+<div th:text="${skuInfo.skuImageList}"></div>
+<div th:utext="${gname}"></div>
+<!--循環-->
+<table>
+    <tr th:each="skuImage:${skuInfo.skuImageList}" th:if="${skuImage.imgName}!='iphoneX.jpg'">
+        <td th:text="(${skuImage.ImgName}=='iphone.jpg')?'金色背面.jpg':${skuImage.ImgName}"></td>
+    </tr>
+</table>
+
+</body>
+</html>
