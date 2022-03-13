@@ -1,4 +1,3 @@
-# gmail0822
-電商項目0822
+This is a Sprint Boot practice project, about E-commerce.
 
 More Detail, please look at https://github.com/MaxwellBest/gmail0822/tree/master/ProjectNote
